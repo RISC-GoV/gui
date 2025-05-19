@@ -1,0 +1,1132 @@
+package main
+
+import (
+	"fmt"
+	"image/color"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data/binding"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+
+	"github.com/RISC-GoV/core"
+	assembler "github.com/RISC-GoV/risc-assembler"
+)
+
+// FileSystemNode represents a node in the file system tree
+type FileSystemNode struct {
+	Path     string
+	Name     string
+	IsDir    bool
+	Children []*FileSystemNode
+	Parent   *FileSystemNode
+}
+
+// FileSystemTree manages the file tree structure
+type FileSystemTree struct {
+	root       *FileSystemNode
+	nodeMap    map[string]*FileSystemNode
+	treeWidget *widget.Tree
+}
+
+// LineNumberPanel represents the line numbers and breakpoints panel
+type LineNumberPanel struct {
+	widget.BaseWidget
+	ide      *IDE
+	lines    []string
+	lineFont fyne.Resource
+}
+
+// NewLineNumberPanel creates a new line number panel
+func NewLineNumberPanel(ide *IDE) *LineNumberPanel {
+	panel := &LineNumberPanel{
+		ide:   ide,
+		lines: []string{},
+	}
+	panel.ExtendBaseWidget(panel)
+	return panel
+}
+
+// CreateRenderer creates the renderer for the line number panel
+func (l *LineNumberPanel) CreateRenderer() fyne.WidgetRenderer {
+	return &lineNumberRenderer{
+		panel: l,
+	}
+}
+
+// UpdateLines updates the line numbers based on editor content
+func (l *LineNumberPanel) UpdateLines(content string) {
+	lines := strings.Split(content, "\n")
+	l.lines = make([]string, len(lines))
+	for i := range lines {
+		l.lines[i] = fmt.Sprintf("%4d", i+1)
+	}
+	l.Refresh()
+}
+
+// GetLineAtPosition returns the line number at a given Y position
+func (l *LineNumberPanel) GetLineAtPosition(pos fyne.Position) int {
+	if len(l.lines) == 0 {
+		return 0
+	}
+
+	// Approximate line height (this would need to be more precise in a real implementation)
+	lineHeight := float32(20) // Approximate line height
+	lineNum := int(pos.Y / lineHeight)
+
+	if lineNum < 0 {
+		return 0
+	}
+	if lineNum >= len(l.lines) {
+		return len(l.lines) - 1
+	}
+
+	return lineNum
+}
+
+// Tapped handles tap events on the line number panel
+func (l *LineNumberPanel) Tapped(evt *fyne.PointEvent) {
+	lineNum := l.GetLineAtPosition(evt.Position)
+	l.ide.toggleBreakpoint(lineNum)
+}
+
+// lineNumberRenderer renders the line number panel
+type lineNumberRenderer struct {
+	panel *LineNumberPanel
+}
+
+func (r *lineNumberRenderer) Layout(size fyne.Size) {
+	// No layout needed for now
+}
+
+func (r *lineNumberRenderer) MinSize() fyne.Size {
+	return fyne.NewSize(60, 20)
+}
+
+func (r *lineNumberRenderer) Refresh() {
+	// Refresh the panel
+}
+
+func (r *lineNumberRenderer) BackgroundColor() color.Color {
+	return theme.BackgroundColor()
+}
+
+func (r *lineNumberRenderer) Objects() []fyne.CanvasObject {
+	objects := []fyne.CanvasObject{}
+
+	for i, lineStr := range r.panel.lines {
+		// Create line number label
+		label := widget.NewLabel(lineStr)
+		label.Alignment = fyne.TextAlignTrailing
+		label.Move(fyne.NewPos(0, float32(i*20)))
+
+		// Add breakpoint indicator if this line has a breakpoint
+		if r.panel.ide.breakpoints[i] {
+			// Create a red circle to indicate breakpoint
+			circle := widget.NewLabel("●")
+			circle.Move(fyne.NewPos(45, float32(i*20)))
+			circle.Importance = widget.DangerImportance
+			objects = append(objects, circle)
+		}
+
+		objects = append(objects, label)
+	}
+
+	return objects
+}
+
+func (r *lineNumberRenderer) Destroy() {
+	// Cleanup if needed
+}
+
+// IDE represents the main IDE application
+type IDE struct {
+	app             fyne.App
+	window          fyne.Window
+	projectPath     string
+	currentFile     string
+	fileSystem      *FileSystemTree
+	editor          *EditorWidget
+	lineNumberPanel *LineNumberPanel
+	terminal        *widget.RichText
+	terminalData    binding.String
+	terminalScroll  *container.Scroll
+	registers       *widget.List
+	memory          *widget.List
+	breakpoints     map[int]bool
+	isDebugging     bool
+	cpu             *core.CPU
+	registerData    []Register
+	memoryData      []MemoryEntry
+	memoryFormat    string
+	showDebug       bool
+	editorContainer *container.Split
+}
+
+// Register represents a CPU register
+type Register struct {
+	Number int
+	Name   string
+	Value  uint32
+}
+
+// MemoryEntry represents a memory location
+type MemoryEntry struct {
+	Address uint32
+	Value   byte
+	Display string
+}
+
+// EditorWidget is a custom text editor
+type EditorWidget struct {
+	widget.Entry
+	ide        *IDE
+	lineCount  int
+	lineOffset int
+}
+
+// NewEditorWidget creates a new editor widget
+func NewEditorWidget(ide *IDE) *EditorWidget {
+	editor := &EditorWidget{ide: ide}
+	editor.ExtendBaseWidget(editor)
+	editor.MultiLine = true
+	editor.Wrapping = fyne.TextWrapOff
+	editor.SetPlaceHolder("Open a file to start editing...")
+
+	// Add text change callback to update line numbers
+	editor.OnChanged = func(content string) {
+		if ide.lineNumberPanel != nil {
+			ide.lineNumberPanel.UpdateLines(content)
+		}
+	}
+
+	return editor
+}
+
+// NewFileSystemTree creates a new file system tree
+func NewFileSystemTree() *FileSystemTree {
+	return &FileSystemTree{
+		nodeMap: make(map[string]*FileSystemNode),
+	}
+}
+
+// BuildTree constructs the file tree from a root directory
+func (fst *FileSystemTree) BuildTree(rootPath string) error {
+	// Clear existing data
+	fst.nodeMap = make(map[string]*FileSystemNode)
+	fst.root = nil
+
+	// Normalize the root path
+	rootPath = filepath.Clean(rootPath)
+
+	// Create root node
+	rootInfo, err := os.Stat(rootPath)
+	if err != nil {
+		return fmt.Errorf("error accessing root path: %v", err)
+	}
+
+	fst.root = &FileSystemNode{
+		Path:     rootPath,
+		Name:     filepath.Base(rootPath),
+		IsDir:    rootInfo.IsDir(),
+		Children: make([]*FileSystemNode, 0),
+		Parent:   nil,
+	}
+	fst.nodeMap[rootPath] = fst.root
+
+	// Build the tree recursively
+	return fst.buildNodeChildren(fst.root)
+}
+
+// buildNodeChildren recursively builds children for a directory node
+func (fst *FileSystemTree) buildNodeChildren(node *FileSystemNode) error {
+	if !node.IsDir {
+		return nil
+	}
+
+	entries, err := os.ReadDir(node.Path)
+	if err != nil {
+		return fmt.Errorf("error reading directory %s: %v", node.Path, err)
+	}
+
+	// Clear existing children
+	node.Children = make([]*FileSystemNode, 0)
+
+	for _, entry := range entries {
+		// Skip hidden files and directories
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+
+		// Skip common non-essential directories
+		if entry.IsDir() && (entry.Name() == "node_modules" ||
+			entry.Name() == ".git" ||
+			entry.Name() == "target" ||
+			entry.Name() == "build") {
+			continue
+		}
+
+		childPath := filepath.Join(node.Path, entry.Name())
+		childNode := &FileSystemNode{
+			Path:     childPath,
+			Name:     entry.Name(),
+			IsDir:    entry.IsDir(),
+			Children: make([]*FileSystemNode, 0),
+			Parent:   node,
+		}
+
+		node.Children = append(node.Children, childNode)
+		fst.nodeMap[childPath] = childNode
+
+		// Recursively build children for directories
+		if childNode.IsDir {
+			if err := fst.buildNodeChildren(childNode); err != nil {
+				// Log error but continue with other nodes
+				fmt.Printf("Warning: failed to build children for %s: %v\n", childPath, err)
+			}
+		}
+	}
+
+	// Sort children: directories first, then files, both alphabetically
+	sort.Slice(node.Children, func(i, j int) bool {
+		a, b := node.Children[i], node.Children[j]
+
+		// Directories come before files
+		if a.IsDir != b.IsDir {
+			return a.IsDir
+		}
+
+		// Within same type, sort alphabetically (case-insensitive)
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	})
+
+	return nil
+}
+
+// GetNode returns a node by its path
+func (fst *FileSystemTree) GetNode(path string) *FileSystemNode {
+	return fst.nodeMap[filepath.Clean(path)]
+}
+
+// CreateTreeWidget creates the Fyne tree widget from the file system tree
+func (fst *FileSystemTree) CreateTreeWidget(ide *IDE) *widget.Tree {
+	fst.treeWidget = widget.NewTree(
+		// ChildUIDs function - returns child IDs for a given node
+		func(uid widget.TreeNodeID) []widget.TreeNodeID {
+			node := fst.GetNode(uid)
+			if node == nil {
+				return nil
+			}
+
+			childUIDs := make([]widget.TreeNodeID, len(node.Children))
+			for i, child := range node.Children {
+				childUIDs[i] = child.Path
+			}
+			return childUIDs
+		},
+
+		// IsBranch function - determines if a node is a branch (directory)
+		func(uid widget.TreeNodeID) bool {
+			node := fst.GetNode(uid)
+			return node != nil && node.IsDir
+		},
+
+		// CreateNode function - creates the visual representation
+		func(branch bool) fyne.CanvasObject {
+			icon := widget.NewIcon(theme.DocumentIcon())
+			label := widget.NewLabel("Loading...")
+			return container.NewHBox(icon, label)
+		},
+
+		// UpdateNode function - updates the visual representation
+		func(uid widget.TreeNodeID, branch bool, obj fyne.CanvasObject) {
+			node := fst.GetNode(uid)
+			if node == nil {
+				return
+			}
+
+			container := obj.(*fyne.Container)
+			icon := container.Objects[0].(*widget.Icon)
+			label := container.Objects[1].(*widget.Label)
+
+			// Set appropriate icon
+			if node.IsDir {
+				icon.SetResource(theme.FolderIcon())
+			} else {
+				// Set icon based on file extension
+				ext := strings.ToLower(filepath.Ext(node.Name))
+				switch ext {
+				case ".s", ".asm":
+					icon.SetResource(theme.DocumentIcon())
+				case ".txt", ".md":
+					icon.SetResource(theme.DocumentIcon())
+				default:
+					icon.SetResource(theme.FileIcon())
+				}
+			}
+
+			// Set label text
+			label.SetText(node.Name)
+		},
+	)
+
+	// Set up event handlers
+	fst.treeWidget.OnSelected = func(uid widget.TreeNodeID) {
+		node := fst.GetNode(uid)
+		if node != nil && !node.IsDir {
+			ide.openFile(node.Path)
+		}
+	}
+
+	// Set root if available
+	if fst.root != nil {
+		fst.treeWidget.Root = fst.root.Path
+		fst.treeWidget.OpenAllBranches()
+	}
+
+	return fst.treeWidget
+}
+
+// Refresh updates the tree widget display
+func (fst *FileSystemTree) Refresh() {
+	if fst.treeWidget != nil {
+		fst.treeWidget.Refresh()
+	}
+}
+
+// NewIDE creates a new IDE instance
+func NewIDE() *IDE {
+	myApp := app.NewWithID("com.RISC-GoV.IDE")
+	myApp.SetIcon(theme.DocumentIcon())
+
+	// Create window with much larger width
+	w := myApp.NewWindow("RISC-V IDE")
+	w.Resize(fyne.NewSize(1600, 1000)) // Increased width from 1200 to 1600
+	w.SetFullScreen(true)
+
+	// Center window on screen
+	w.CenterOnScreen()
+
+	ide := &IDE{
+		app:          myApp,
+		window:       w,
+		breakpoints:  make(map[int]bool),
+		memoryFormat: "hex",
+		fileSystem:   NewFileSystemTree(),
+	}
+
+	ide.terminalData = binding.NewString()
+	ide.initializeUI()
+	ide.addWelcomeMessage()
+
+	return ide
+}
+
+// isAssemblyFile checks if the file is an assembly file
+func (ide *IDE) isAssemblyFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	return ext == ".s" || ext == ".asm"
+}
+
+// loadBreakpointsFromFile loads breakpoints from ebreak instructions in assembly files
+func (ide *IDE) loadBreakpointsFromFile(content string) {
+	if !ide.isAssemblyFile(ide.currentFile) {
+		return
+	}
+
+	lines := strings.Split(content, "\n")
+	ide.breakpoints = make(map[int]bool)
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "ebreak" {
+			ide.breakpoints[i] = true
+		}
+	}
+
+	// Update line number panel to show breakpoints
+	if ide.lineNumberPanel != nil {
+		ide.lineNumberPanel.Refresh()
+	}
+}
+
+// initializeUI sets up the user interface
+func (ide *IDE) initializeUI() {
+	// Create main menu
+	fileMenu := fyne.NewMenu("File",
+		fyne.NewMenuItem("Open Project", func() {
+			ide.openProjectDialog()
+		}),
+		fyne.NewMenuItem("Open File", func() {
+			ide.openFileDialog()
+		}),
+		fyne.NewMenuItem("Save", func() {
+			ide.saveFile()
+		}),
+		fyne.NewMenuItem("Save As", func() {
+			ide.saveAsDialog()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Exit", func() {
+			ide.app.Quit()
+		}),
+	)
+
+	runMenu := fyne.NewMenu("Run",
+		fyne.NewMenuItem("Assemble", func() {
+			ide.assembleCode()
+		}),
+		fyne.NewMenuItem("Run", func() {
+			if err := ide.assembleCode(); err == nil {
+				ide.executeCode(false)
+			}
+		}),
+		fyne.NewMenuItem("Debug", func() {
+			if err := ide.assembleCode(); err == nil {
+				ide.executeCode(true)
+			}
+		}),
+		fyne.NewMenuItem("Step", func() {
+			ide.stepExecution()
+		}),
+		fyne.NewMenuItem("Stop", func() {
+			ide.stopExecution()
+		}),
+	)
+
+	debugMenu := fyne.NewMenu("Debug",
+		fyne.NewMenuItem("Toggle Breakpoint", func() {
+			ide.toggleBreakpointAtCursor()
+		}),
+		fyne.NewMenuItem("Clear All Breakpoints", func() {
+			ide.clearAllBreakpoints()
+		}),
+		fyne.NewMenuItem("Show Debug Panel", func() {
+			ide.toggleDebugView()
+		}),
+	)
+
+	viewMenu := fyne.NewMenu("View",
+		fyne.NewMenuItem("Refresh File Tree", func() {
+			if ide.projectPath != "" {
+				ide.refreshFileTree()
+			}
+		}),
+		fyne.NewMenuItem("Toggle Debug Panel", func() {
+			ide.toggleDebugView()
+		}),
+	)
+
+	mainMenu := fyne.NewMainMenu(fileMenu, runMenu, debugMenu, viewMenu)
+	ide.window.SetMainMenu(mainMenu)
+
+	// Create toolbar
+	toolbar := ide.createToolbar()
+
+	// Create editor and line number panel
+	ide.editor = NewEditorWidget(ide)
+	ide.lineNumberPanel = NewLineNumberPanel(ide)
+
+	// Create editor container with line numbers
+	ide.editorContainer = container.NewHSplit(
+		ide.lineNumberPanel,
+		container.NewScroll(ide.editor),
+	)
+	ide.editorContainer.SetOffset(0.05) // Line numbers take 5% of editor width
+
+	// Create file tree widget
+	fileTreeWidget := ide.fileSystem.CreateTreeWidget(ide)
+
+	// Create terminal
+	ide.terminal = widget.NewRichTextFromMarkdown("")
+	ide.terminal.Scroll = container.ScrollVerticalOnly
+	ide.terminalScroll = container.NewScroll(ide.terminal)
+
+	terminalContainer := container.NewBorder(
+		widget.NewCard("Terminal", "", nil).Content,
+		nil, nil, nil,
+		ide.terminalScroll,
+	)
+
+	// Create debug panels
+	ide.createDebugPanels()
+
+	// Layout setup with improved sizing
+	leftPanel := container.NewBorder(
+		widget.NewCard("Project Files", "", nil).Content,
+		nil, nil, nil,
+		container.NewScroll(fileTreeWidget),
+	)
+
+	editorContainerWithHeader := container.NewBorder(
+		widget.NewCard("Editor", "", nil).Content,
+		nil, nil, nil,
+		ide.editorContainer,
+	)
+
+	debugPanel := ide.createDebugContainer()
+
+	// Create main horizontal split with file tree and editor/debug
+	mainHSplit := container.NewHSplit(
+		leftPanel,
+		container.NewHSplit(editorContainerWithHeader, debugPanel),
+	)
+	mainHSplit.SetOffset(0.15) // File tree takes 15% of width
+
+	// Create vertical split for main content and terminal
+	mainVSplit := container.NewVSplit(
+		mainHSplit,
+		terminalContainer,
+	)
+	mainVSplit.SetOffset(0.75) // Main content takes 75% of height
+
+	// Final content with toolbar
+	content := container.NewBorder(
+		toolbar, nil, nil, nil,
+		mainVSplit,
+	)
+
+	ide.window.SetContent(content)
+}
+
+// createToolbar creates the application toolbar
+func (ide *IDE) createToolbar() *fyne.Container {
+	openBtn := widget.NewButtonWithIcon("Open Project", theme.FolderOpenIcon(), func() {
+		ide.openProjectDialog()
+	})
+
+	saveBtn := widget.NewButtonWithIcon("Save", theme.DocumentSaveIcon(), func() {
+		ide.saveFile()
+	})
+
+	assembleBtn := widget.NewButtonWithIcon("Assemble", theme.ConfirmIcon(), func() {
+		ide.assembleCode()
+	})
+
+	runBtn := widget.NewButtonWithIcon("Run", theme.MediaPlayIcon(), func() {
+		if err := ide.assembleCode(); err == nil {
+			ide.executeCode(false)
+		}
+	})
+
+	debugBtn := widget.NewButtonWithIcon("Debug", theme.BrokenImageIcon(), func() {
+		if err := ide.assembleCode(); err == nil {
+			ide.executeCode(true)
+		}
+	})
+
+	stepBtn := widget.NewButtonWithIcon("Step", theme.MediaSkipNextIcon(), func() {
+		ide.stepExecution()
+	})
+
+	stopBtn := widget.NewButtonWithIcon("Stop", theme.MediaStopIcon(), func() {
+		ide.stopExecution()
+	})
+
+	refreshBtn := widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), func() {
+		if ide.projectPath != "" {
+			ide.refreshFileTree()
+		}
+	})
+
+	toolbar := container.NewHBox(
+		openBtn, saveBtn, refreshBtn,
+		widget.NewSeparator(),
+		assembleBtn, runBtn, debugBtn,
+		widget.NewSeparator(),
+		stepBtn, stopBtn,
+	)
+
+	return toolbar
+}
+
+// createDebugPanels creates the debug-related UI panels
+func (ide *IDE) createDebugPanels() {
+	// Initialize registers
+	ide.initializeRegisters()
+
+	// Create registers list
+	ide.registers = widget.NewList(
+		func() int { return len(ide.registerData) },
+		func() fyne.CanvasObject {
+			return widget.NewLabel("Register")
+		},
+		func(i widget.ListItemID, obj fyne.CanvasObject) {
+			if label, ok := obj.(*widget.Label); ok && i < len(ide.registerData) {
+				reg := ide.registerData[i]
+				label.SetText(fmt.Sprintf("x%d (%s): %d (0x%X)", reg.Number, reg.Name, reg.Value, reg.Value))
+			}
+		},
+	)
+
+	// Create memory list
+	ide.memory = widget.NewList(
+		func() int { return len(ide.memoryData) },
+		func() fyne.CanvasObject {
+			return widget.NewLabel("Memory")
+		},
+		func(i widget.ListItemID, obj fyne.CanvasObject) {
+			if label, ok := obj.(*widget.Label); ok && i < len(ide.memoryData) {
+				entry := ide.memoryData[i]
+				label.SetText(entry.Display)
+			}
+		},
+	)
+}
+
+// createDebugContainer creates the debug panel container
+func (ide *IDE) createDebugContainer() fyne.CanvasObject {
+	registersContainer := container.NewBorder(
+		widget.NewCard("Registers", "", nil).Content,
+		nil, nil, nil,
+		container.NewScroll(ide.registers),
+	)
+
+	memoryContainer := container.NewBorder(
+		widget.NewCard("Memory", "", nil).Content,
+		nil, nil, nil,
+		container.NewScroll(ide.memory),
+	)
+
+	debugContainer := container.NewVSplit(registersContainer, memoryContainer)
+
+	if !ide.showDebug {
+		debugContainer.Hide()
+	}
+
+	return debugContainer
+}
+
+// openProjectDialog opens a dialog to select a project directory
+func (ide *IDE) openProjectDialog() {
+	dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+		if err != nil {
+			dialog.ShowError(err, ide.window)
+			return
+		}
+		if uri == nil {
+			return
+		}
+
+		ide.projectPath = uri.Path()
+		ide.refreshFileTree()
+		ide.logToTerminal(fmt.Sprintf("Opened project: %s", ide.projectPath))
+	}, ide.window)
+}
+
+// refreshFileTree rebuilds and refreshes the file tree
+func (ide *IDE) refreshFileTree() {
+	if ide.projectPath == "" {
+		return
+	}
+
+	err := ide.fileSystem.BuildTree(ide.projectPath)
+	if err != nil {
+		ide.logToTerminal(fmt.Sprintf("Error building file tree: %v", err))
+		return
+	}
+
+	// Update the tree widget root and refresh
+	if ide.fileSystem.treeWidget != nil {
+		ide.fileSystem.treeWidget.Root = ide.projectPath
+		ide.fileSystem.Refresh()
+		ide.fileSystem.treeWidget.OpenAllBranches()
+	}
+
+	ide.logToTerminal(fmt.Sprintf("File tree refreshed for: %s", ide.projectPath))
+}
+
+// openFileDialog opens a dialog to select a file
+func (ide *IDE) openFileDialog() {
+	dialog.ShowFileOpen(func(uri fyne.URIReadCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, ide.window)
+			return
+		}
+		if uri == nil {
+			return
+		}
+		defer uri.Close()
+
+		ide.openFile(uri.URI().Path())
+	}, ide.window)
+}
+
+// saveAsDialog opens a dialog to save the current file
+func (ide *IDE) saveAsDialog() {
+	dialog.ShowFileSave(func(uri fyne.URIWriteCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, ide.window)
+			return
+		}
+		if uri == nil {
+			return
+		}
+		defer uri.Close()
+
+		ide.currentFile = uri.URI().Path()
+		ide.saveFile()
+	}, ide.window)
+}
+
+// openFile opens a file in the editor
+func (ide *IDE) openFile(filePath string) error {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		ide.logToTerminal(fmt.Sprintf("Error opening file: %v", err))
+		return err
+	}
+
+	ide.currentFile = filePath
+	ide.editor.SetText(string(content))
+
+	// Load breakpoints from file if it's an assembly file
+	ide.loadBreakpointsFromFile(string(content))
+
+	// Update line numbers
+	if ide.lineNumberPanel != nil {
+		ide.lineNumberPanel.UpdateLines(string(content))
+	}
+
+	ide.logToTerminal(fmt.Sprintf("Opened file: %s", filepath.Base(filePath)))
+
+	return nil
+}
+
+// saveFile saves the current file
+func (ide *IDE) saveFile() error {
+	if ide.currentFile == "" {
+		ide.saveAsDialog()
+		return nil
+	}
+
+	content := ide.editor.Text
+	err := os.WriteFile(ide.currentFile, []byte(content), 0644)
+	if err != nil {
+		ide.logToTerminal(fmt.Sprintf("Error saving file: %v", err))
+		dialog.ShowError(err, ide.window)
+		return err
+	}
+
+	ide.logToTerminal(fmt.Sprintf("Saved: %s", filepath.Base(ide.currentFile)))
+	return nil
+}
+
+// toggleBreakpoint toggles a breakpoint at the specified line
+func (ide *IDE) toggleBreakpoint(lineNum int) {
+	if lineNum < 0 {
+		return
+	}
+
+	if ide.breakpoints[lineNum] {
+		delete(ide.breakpoints, lineNum)
+		ide.logToTerminal(fmt.Sprintf("Removed breakpoint at line %d", lineNum+1))
+	} else {
+		ide.breakpoints[lineNum] = true
+		ide.logToTerminal(fmt.Sprintf("Added breakpoint at line %d", lineNum+1))
+	}
+
+	// Refresh line number panel to update breakpoint display
+	if ide.lineNumberPanel != nil {
+		ide.lineNumberPanel.Refresh()
+	}
+}
+
+// toggleBreakpointAtCursor toggles breakpoint at the current cursor position
+func (ide *IDE) toggleBreakpointAtCursor() {
+	// Get cursor position and determine line number
+	content := ide.editor.Text
+	cursorPos := ide.editor.CursorColumn + ide.editor.CursorRow*len(strings.Split(content, "\n")[0])
+
+	lines := strings.Split(content[:cursorPos], "\n")
+	lineNum := len(lines) - 1
+
+	ide.toggleBreakpoint(lineNum)
+}
+
+// clearAllBreakpoints removes all breakpoints
+func (ide *IDE) clearAllBreakpoints() {
+	ide.breakpoints = make(map[int]bool)
+	if ide.lineNumberPanel != nil {
+		ide.lineNumberPanel.Refresh()
+	}
+	ide.logToTerminal("Cleared all breakpoints")
+}
+
+// insertBreakpoints creates a debug version with breakpoints
+func (ide *IDE) insertBreakpoints() error {
+	if ide.currentFile == "" {
+		return fmt.Errorf("no file open")
+	}
+
+	lines := strings.Split(ide.editor.Text, "\n")
+	tempLines := make([]string, len(lines))
+	copy(tempLines, lines)
+
+	// Insert ebreak instructions at breakpoint lines
+	for lineNum := range ide.breakpoints {
+		if lineNum >= 0 && lineNum < len(tempLines) {
+			tempLines[lineNum] = "ebreak\n" + tempLines[lineNum]
+		}
+	}
+
+	// Save temporary file with breakpoints
+	tempFile := filepath.Join(filepath.Dir(ide.currentFile), ".riscgov_ide", "debug.asm")
+	content := strings.Join(tempLines, "\n")
+	err := os.WriteFile(tempFile, []byte(content), 0644)
+	if err != nil {
+		return err
+	}
+
+	// Assemble the debug version
+	asm := assembler.Assembler{}
+	outputPath := filepath.Join(filepath.Dir(ide.currentFile), ".riscgov_ide", "debug.bin")
+	return asm.Assemble(tempFile, outputPath)
+}
+
+// addWelcomeMessage adds a welcome message to the terminal
+func (ide *IDE) addWelcomeMessage() {
+	welcome := `Welcome to RISC-V IDE!
+
+Features:
+- File tree navigation
+- Assembly editor with syntax highlighting
+- Line numbers with breakpoint support
+- Click on line numbers to toggle breakpoints
+- Assembly and debugging support
+- Register and memory inspection
+
+Get started by opening a project or file.`
+
+	ide.logToTerminal(welcome)
+}
+
+// assembleCode assembles the current file
+func (ide *IDE) assembleCode() error {
+	if ide.currentFile == "" {
+		err := fmt.Errorf("no file open")
+		ide.logToTerminal(err.Error())
+		return err
+	}
+
+	// Save file first
+	if err := ide.saveFile(); err != nil {
+		return err
+	}
+
+	// Create hidden directory for assembled output
+	hiddenDir := filepath.Join(filepath.Dir(ide.currentFile), ".riscgov_ide")
+	err := os.MkdirAll(hiddenDir, 0755)
+	if err != nil {
+		ide.logToTerminal(fmt.Sprintf("Error creating output directory: %v", err))
+		return err
+	}
+
+	// Assemble the code
+	asm := assembler.Assembler{}
+	outputPath := filepath.Join(hiddenDir, "output.bin")
+	err = asm.Assemble(ide.currentFile, outputPath)
+	if err != nil {
+		ide.logToTerminal(fmt.Sprintf("Assembly error: %v", err))
+		return err
+	}
+
+	ide.logToTerminal("Assembly successful")
+	return nil
+}
+
+// executeCode executes or debugs the assembled code
+func (ide *IDE) executeCode(debug bool) error {
+	var outputPath string
+
+	if debug {
+		// Insert breakpoints and assemble debug version
+		err := ide.insertBreakpoints()
+		if err != nil {
+			ide.logToTerminal(fmt.Sprintf("Error creating debug version: %v", err))
+			return err
+		}
+		outputPath = filepath.Join(filepath.Dir(ide.currentFile), ".riscgov_ide", "debug.bin")
+
+		// Initialize CPU and start debugging
+		ide.cpu = core.NewCPU(core.NewMemory())
+		ide.isDebugging = true
+		ide.showDebug = true
+		ide.initializeRegisters()
+		ide.updateMemory()
+
+		go func() {
+			err := ide.cpu.DebugFile(outputPath)
+			if err != nil {
+				ide.logToTerminal(fmt.Sprintf("Debug error: %v", err))
+			}
+			ide.isDebugging = false
+		}()
+
+		ide.logToTerminal("Debug session started")
+	} else {
+		// Regular execution
+		outputPath = filepath.Join(filepath.Dir(ide.currentFile), ".riscgov_ide", "output.bin")
+
+		go func() {
+			cpu := core.NewCPU(core.NewMemory())
+			err := cpu.ExecuteFile(outputPath)
+			if err != nil {
+				ide.logToTerminal(fmt.Sprintf("Execution error: %v", err))
+			} else {
+				ide.logToTerminal("Execution completed")
+			}
+		}()
+
+		ide.logToTerminal("Execution started")
+	}
+
+	return nil
+}
+
+// stepExecution steps one instruction in debug mode
+func (ide *IDE) stepExecution() {
+	if !ide.isDebugging || ide.cpu == nil {
+		ide.logToTerminal("Not in debug mode")
+		return
+	}
+
+	go func() {
+		// This would step one instruction
+		// Implementation depends on the CPU interface
+		ide.updateRegisters()
+		ide.updateMemory()
+		ide.logToTerminal("Stepped one instruction")
+	}()
+}
+
+// stopExecution stops the current execution
+func (ide *IDE) stopExecution() {
+	ide.isDebugging = false
+	ide.showDebug = false
+	ide.cpu = nil
+	ide.logToTerminal("Execution stopped")
+}
+
+// toggleDebugView toggles the debug panel visibility
+func (ide *IDE) toggleDebugView() {
+	ide.showDebug = !ide.showDebug
+	// This would need to be implemented to actually show/hide the debug container
+	// The Fyne container structure would need to be modified
+}
+
+// initializeRegisters initializes the register display
+func (ide *IDE) initializeRegisters() {
+	registerNames := []string{
+		"zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
+		"s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
+		"a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
+		"s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6",
+	}
+
+	ide.registerData = make([]Register, 32)
+	for i := 0; i < 32; i++ {
+		ide.registerData[i] = Register{
+			Number: i,
+			Name:   registerNames[i],
+			Value:  0,
+		}
+	}
+}
+
+// updateRegisters updates the register values from the CPU
+func (ide *IDE) updateRegisters() {
+	if ide.cpu == nil {
+		return
+	}
+
+	// This would need to be implemented based on the actual CPU interface
+	// For now, we'll simulate some values
+	for i := range ide.registerData {
+		// This is a placeholder - actual implementation would read from CPU
+		ide.registerData[i].Value = uint32(i * 100)
+	}
+
+	if ide.registers != nil {
+		ide.registers.Refresh()
+	}
+}
+
+// updateMemory updates the memory display
+func (ide *IDE) updateMemory() {
+	ide.memoryData = make([]MemoryEntry, 256)
+
+	for i := 0; i < 256; i++ {
+		addr := uint32(i)
+		value := byte(i % 256) // Simulated memory content
+
+		var display string
+		switch ide.memoryFormat {
+		case "hex":
+			display = fmt.Sprintf("0x%08X: 0x%02X", addr, value)
+		case "ascii":
+			if value >= 32 && value <= 126 {
+				display = fmt.Sprintf("0x%08X: '%c'", addr, value)
+			} else {
+				display = fmt.Sprintf("0x%08X: .", addr)
+			}
+		case "decimal":
+			display = fmt.Sprintf("0x%08X: %d", addr, value)
+		}
+
+		ide.memoryData[i] = MemoryEntry{
+			Address: addr,
+			Value:   value,
+			Display: display,
+		}
+	}
+
+	if ide.memory != nil {
+		ide.memory.Refresh()
+	}
+}
+func (ide *IDE) logToTerminal(message string) {
+	if ide.terminal != nil && ide.terminalData != nil {
+		current, _ := ide.terminalData.Get()
+		updated := current + "\n" + message
+		ide.terminalData.Set(updated)
+		ide.terminal.ParseMarkdown(updated)
+		ide.terminalScroll.ScrollToBottom()
+	}
+}
+
+// runTerminalCommand executes a command and displays output in terminal
+func (ide *IDE) runTerminalCommand(command string) {
+	cmd := exec.Command("sh", "-c", command)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		ide.logToTerminal(fmt.Sprintf("Command failed: %v", err))
+	}
+
+	// Add output lines to terminal
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			ide.logToTerminal(line)
+		}
+	}
+}
+
+// Run starts the IDE application
+func (ide *IDE) Run() {
+	(ide.window).ShowAndRun()
+}
+
+func main() {
+	ide := NewIDE()
+	ide.Run()
+}
