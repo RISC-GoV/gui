@@ -150,12 +150,6 @@ func UpdateWindowSettings(width, height, x, y int) {
 	SavePreferences()
 }
 
-func SetTheme(darkMode bool, themeName string) {
-	preferences.ThemeSettings.DarkMode = darkMode
-	preferences.ThemeSettings.ThemeName = themeName
-	SavePreferences()
-}
-
 func SetEditorSettings(fontFamily string, fontSize, tabWidth int, showLineNumbers, wrapText bool) {
 	preferences.EditorSettings.FontFamily = fontFamily
 	preferences.EditorSettings.FontSize = fontSize
@@ -265,35 +259,6 @@ func createEditorSettingsTab() *widgets.QWidget {
 	return tab
 }
 
-func createThemeSettingsTab() *widgets.QWidget {
-	tab := widgets.NewQWidget(nil, 0)
-	layout := widgets.NewQFormLayout(nil)
-	tab.SetLayout(layout)
-
-	// Dark mode
-	darkModeCheck = widgets.NewQCheckBox(nil)
-	darkModeCheck.SetChecked(preferences.ThemeSettings.DarkMode)
-	layout.AddRow3("Dark Mode:", darkModeCheck)
-
-	// Theme selector
-	themeCombo = widgets.NewQComboBox(nil)
-	themeCombo.AddItems([]string{
-		"Default",
-		"Monokai",
-		"Solarized",
-	})
-
-	// Set current theme
-	index := themeCombo.FindText(preferences.ThemeSettings.ThemeName, core.Qt__MatchFixedString)
-	if index >= 0 {
-		themeCombo.SetCurrentIndex(index)
-	}
-
-	layout.AddRow3("Theme:", themeCombo)
-
-	return tab
-}
-
 func createGeneralSettingsTab() *widgets.QWidget {
 	tab := widgets.NewQWidget(nil, 0)
 	layout := widgets.NewQFormLayout(nil)
@@ -336,6 +301,7 @@ func createGeneralSettingsTab() *widgets.QWidget {
 	return tab
 }
 
+// Modified savePreferencesFromUI function
 func savePreferencesFromUI() {
 	// Save editor settings
 	SetEditorSettings(
@@ -347,10 +313,7 @@ func savePreferencesFromUI() {
 	)
 
 	// Save theme settings
-	SetTheme(
-		darkModeCheck.IsChecked(),
-		themeCombo.CurrentText(),
-	)
+	SetTheme(themeCombo.CurrentText() == "Dark")
 
 	// Save auto-save settings
 	SetAutoSave(
@@ -362,6 +325,7 @@ func savePreferencesFromUI() {
 	applyPreferencesToEditor()
 }
 
+// Apply preferences to the editor
 func applyPreferencesToEditor() {
 	// Apply font settings
 	font := gui.NewQFont()
@@ -381,36 +345,22 @@ func applyPreferencesToEditor() {
 		editor.SetLineWrapMode(widgets.QPlainTextEdit__NoWrap)
 	}
 
-	// Apply theme if dark mode is enabled
-	if preferences.ThemeSettings.DarkMode {
-		// Create dark palette
-		darkPalette := gui.NewQPalette()
-		darkColor := gui.NewQColor3(45, 45, 45, 255)
-		darkPalette.SetColor2(gui.QPalette__Window, darkColor)
-		darkPalette.SetColor2(gui.QPalette__WindowText, gui.NewQColor3(255, 255, 255, 255))
-		darkPalette.SetColor2(gui.QPalette__Base, gui.NewQColor3(25, 25, 25, 255))
-		darkPalette.SetColor2(gui.QPalette__AlternateBase, darkColor)
-		darkPalette.SetColor2(gui.QPalette__ToolTipBase, gui.NewQColor3(255, 255, 220, 255))
-		darkPalette.SetColor2(gui.QPalette__ToolTipText, gui.NewQColor3(0, 0, 0, 255))
-		darkPalette.SetColor2(gui.QPalette__Text, gui.NewQColor3(255, 255, 255, 255))
-		darkPalette.SetColor2(gui.QPalette__Button, darkColor)
-		darkPalette.SetColor2(gui.QPalette__ButtonText, gui.NewQColor3(255, 255, 255, 255))
-		darkPalette.SetColor2(gui.QPalette__Link, gui.NewQColor3(42, 130, 218, 255))
-		darkPalette.SetColor2(gui.QPalette__Highlight, gui.NewQColor3(42, 130, 218, 255))
-		darkPalette.SetColor2(gui.QPalette__HighlightedText, gui.NewQColor3(0, 0, 0, 255))
+	// Apply theme
+	applyTheme(preferences.ThemeSettings.ThemeName)
 
-		app.SetPalette(darkPalette, "")
-	} else {
-		// Reset to default palette
-		app.SetPalette(app.Style().StandardPalette(), "")
-	}
+	// Setup syntax highlighting (optional)
+	setupSyntaxHighlighting(editor.QPlainTextEdit)
 
 	// Force update of line number area
 	editor.updateLineNumberAreaWidth()
 	editor.lineNumberArea.Update()
 }
 
+// Initialize from preferences
 func initializeFromPreferences() {
+	// Initialize themes before applying preferences
+	initializeThemes()
+
 	// Initialize preferences system
 	err := InitPreferences()
 	if err != nil {

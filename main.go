@@ -485,7 +485,7 @@ func createMenus() {
 func main() {
 	// Initialize Qt application
 	app = widgets.NewQApplication(len(os.Args), os.Args)
-
+	applyModernTheme()
 	// Initialize global variables
 	debugInfo = &DebugState{
 		isDebugging: false,
