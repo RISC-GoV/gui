@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
-	"io/ioutil"
-	"os"
-	"path/filepath"
 )
 
 type UserPreferences struct {
@@ -29,8 +29,9 @@ type UserPreferences struct {
 		Y      int `json:"y"`
 	} `json:"windowSettings"`
 	ThemeSettings struct {
-		DarkMode  bool   `json:"darkMode"`
-		ThemeName string `json:"themeName"`
+		DarkMode            bool        `json:"darkMode"`
+		ThemeName           string      `json:"themeName"`
+		LineNumberAreaColor *gui.QColor `json:"lineNumberAreaColor"`
 	} `json:"themeSettings"`
 	AutoSaveEnabled  bool `json:"autoSaveEnabled"`
 	AutoSaveInterval int  `json:"autoSaveInterval"` // In seconds
@@ -63,7 +64,7 @@ func InitPreferences() error {
 	}
 
 	// Load existing preferences
-	data, err := ioutil.ReadFile(preferencesPath)
+	data, err := os.ReadFile(preferencesPath)
 	if err != nil {
 		return fmt.Errorf("failed to read preferences file: %v", err)
 	}
@@ -99,6 +100,7 @@ func getDefaultPreferences() UserPreferences {
 	// Default theme settings
 	prefs.ThemeSettings.DarkMode = false
 	prefs.ThemeSettings.ThemeName = "default"
+	prefs.ThemeSettings.LineNumberAreaColor = gui.NewQColor3(240, 240, 240, 255)
 
 	return prefs
 }
@@ -109,7 +111,7 @@ func SavePreferences() error {
 		return fmt.Errorf("failed to marshal preferences: %v", err)
 	}
 
-	if err := ioutil.WriteFile(preferencesPath, data, 0644); err != nil {
+	if err := os.WriteFile(preferencesPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write preferences file: %v", err)
 	}
 
@@ -215,7 +217,6 @@ var (
 	tabWidthSpinner         *widgets.QSpinBox
 	lineNumbersCheck        *widgets.QCheckBox
 	wrapTextCheck           *widgets.QCheckBox
-	darkModeCheck           *widgets.QCheckBox
 	themeCombo              *widgets.QComboBox
 	autoSaveCheck           *widgets.QCheckBox
 	autoSaveIntervalSpinner *widgets.QSpinBox

@@ -2,14 +2,16 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+
 	rcore "github.com/RISC-GoV/core"
 	assembler "github.com/RISC-GoV/risc-assembler"
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
-	"log"
-	"os"
-	"path/filepath"
 )
 
 // Global variables
@@ -178,6 +180,9 @@ func createToolbars() {
 	mainWindow.AddToolBar(core.Qt__TopToolBarArea, debugToolbar)
 	debugToolbar.SetVisible(false)
 
+	hotReloadAction := debugToolbar.AddAction2(gui.NewQIcon(), "HotReload")
+	hotReloadAction.ConnectTriggered(func(bool) { hotReloadCode() })
+
 	stepAction := debugToolbar.AddAction2(gui.NewQIcon(), "Step")
 	stepAction.ConnectTriggered(func(bool) { stepDebugCode() })
 
@@ -293,18 +298,41 @@ func runCode() {
 		return
 	}
 
-	terminalOutput.SetPlainText(terminalOutput.ToPlainText() + "Assembly successful.\nRunning code...\n")
+	setTerminal("Assembly successful.\nRunning code...\n")
 
 	// Execute code
 	outputFile := filepath.Join(outputDir, "output.exe")
 	cpu := rcore.NewCPU(rcore.NewMemory())
 	err = cpu.ExecuteFile(outputFile)
 	if err != nil {
-		terminalOutput.SetPlainText(terminalOutput.ToPlainText() + fmt.Sprintf("Execution failed: %v\n", err))
+		setTerminal(fmt.Sprintf("Execution failed: %v\n", err))
 		return
 	}
 
-	terminalOutput.SetPlainText(terminalOutput.ToPlainText() + "Program executed successfully.\n")
+	setTerminal("Program executed successfully.\n")
+}
+
+func setTerminal(newMSG string) {
+	const maxLines = 50
+
+	old := terminalOutput.ToPlainText()
+	combined := old + newMSG
+
+	// Split into lines
+	lines := strings.Split(combined, "\n")
+
+	// Keep only the last maxLines
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+
+	// Join and set the updated text
+	terminalOutput.SetPlainText(strings.Join(lines, "\n"))
+
+	// Scroll to bottom using gui.QTextCursor
+	cursor := terminalOutput.TextCursor()
+	cursor.MovePosition(gui.QTextCursor__End, gui.QTextCursor__MoveAnchor, 1)
+	terminalOutput.SetTextCursor(cursor)
 }
 
 func updateRegistersDisplay() {

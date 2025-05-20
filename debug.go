@@ -2,16 +2,17 @@ package main
 
 import (
 	"fmt"
-	rcore "github.com/RISC-GoV/core"
-	assembler "github.com/RISC-GoV/risc-assembler"
-	"github.com/therecipe/qt/core"
-	"github.com/therecipe/qt/gui"
-	"github.com/therecipe/qt/widgets"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	rcore "github.com/RISC-GoV/core"
+	assembler "github.com/RISC-GoV/risc-assembler"
+	"github.com/therecipe/qt/core"
+	"github.com/therecipe/qt/gui"
+	"github.com/therecipe/qt/widgets"
 )
 
 func stepDebugCode() {
@@ -155,7 +156,7 @@ func debugCode() {
 		return
 	}
 
-	terminalOutput.SetPlainText(terminalOutput.ToPlainText() + "Assembly successful.\nStarting debugger...\n")
+	setTerminal("Assembly successful.\nStarting debugger...\n")
 
 	// Start debug session with fresh state
 	debugInfo.isDebugging = true
@@ -168,7 +169,7 @@ func debugCode() {
 	// Load program in CPU
 	err = debugInfo.cpu.LoadFile(outputFile)
 	if err != nil {
-		terminalOutput.SetPlainText(terminalOutput.ToPlainText() + fmt.Sprintf("Debug failed: %v\n", err))
+		setTerminal(fmt.Sprintf("Debug failed: %v\n", err))
 		stopDebugging()
 		return
 	}
@@ -182,7 +183,76 @@ func debugCode() {
 		lineNum = int(debugInfo.cpu.PC/4) + 1
 	}
 	editor.HighlightLine(lineNum)
-	terminalOutput.SetPlainText(terminalOutput.ToPlainText() + "Debug session started. Use Step or Continue.\n")
+	setTerminal("Debug session started. Use Step or Continue.\n")
+}
+
+func hotReloadCode() {
+	saveCurrentFile()
+
+	// Create hidden directory for assembled output
+	outputDir := filepath.Join(filepath.Dir(currentFilePath), ".riscgov_ide/assembling")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		log.Printf("Error creating output directory: %v", err)
+		widgets.QMessageBox_Critical(mainWindow, "Error", fmt.Sprintf("Failed to create output directory: %v", err), widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
+	}
+
+	// Process breakpoints - add ebreak instructions
+	lines := strings.Split(editor.ToPlainText(), "\n")
+	tempFile := filepath.Join(outputDir, "temp_"+filepath.Base(currentFilePath))
+
+	var modifiedContent strings.Builder
+
+	for lineIndex, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Skip empty lines and comments for breakpoint purposes
+		if trimmedLine != "" && !strings.HasPrefix(trimmedLine, "#") && !strings.HasPrefix(trimmedLine, "//") {
+			parts := strings.Fields(trimmedLine)
+			if len(parts) > 0 {
+				_, isInstruction := assembler.InstructionToOpType[parts[0]]
+				_, isInstruction2 := assembler.PseudoToInstruction[parts[0]]
+
+				// If this is an instruction and we have a breakpoint on this line
+				if (isInstruction || isInstruction2) && debugInfo.breakpoints[lineIndex] {
+					modifiedContent.WriteString("ebreak\n")
+				}
+			}
+		}
+
+		modifiedContent.WriteString(line + "\n")
+	}
+	terminalOutput.Clear()
+
+	debugFileContent := modifiedContent.String()
+
+	debugFileSplit = strings.Split(debugFileContent, "\n")
+	realFileSplit = strings.Split(editor.ToPlainText(), "\n")
+	if err := os.WriteFile(tempFile, []byte(modifiedContent.String()), 0644); err != nil {
+		terminalOutput.SetPlainText("Failed to create temporary file with breakpoints.")
+		return
+	}
+
+	asm := assembler.Assembler{}
+	err := asm.Assemble(tempFile, outputDir)
+	if err != nil {
+		widgets.QMessageBox_Critical(mainWindow, "Error", fmt.Sprintf("Hot reload failed, error Assembling:\n %v", err), widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
+	}
+
+	// Show debug UI
+	showDebugWindows()
+
+	outputFile := filepath.Join(outputDir, "output.exe")
+	debugInfo.cpu.Memory = rcore.NewMemory()
+	oldPC := debugInfo.cpu.PC
+	// Load program in CPU
+	err = debugInfo.cpu.LoadFile(outputFile)
+	if err != nil {
+		widgets.QMessageBox_Critical(mainWindow, "Error", fmt.Sprintf("Hot reload failed, error LoadingFile:\n %v", err), widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
+	}
+	debugInfo.cpu.PC = oldPC
 }
 
 func stopDebugging() {
@@ -400,7 +470,7 @@ func (e *CodeEditor) lineNumberAreaPaint(event *gui.QPaintEvent) {
 
 	// Fill background - fill the entire visible area
 	r := event.Rect()
-	painter.FillRect5(r.X(), r.Y(), r.Width(), r.Height(), gui.NewQColor3(240, 240, 240, 255))
+	painter.FillRect5(r.X(), r.Y(), r.Width(), r.Height(), preferences.ThemeSettings.LineNumberAreaColor)
 
 	// Draw line numbers and breakpoint indicators
 	block := e.FirstVisibleBlock()
