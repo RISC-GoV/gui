@@ -17,6 +17,7 @@ type UserPreferences struct {
 	EditorSettings    struct {
 		FontFamily      string `json:"fontFamily"`
 		FontSize        int    `json:"fontSize"`
+		TFontSize       int    `json:"tFontSize"`
 		TabWidth        int    `json:"tabWidth"`
 		ShowLineNumbers bool   `json:"showLineNumbers"`
 		WrapText        bool   `json:"wrapText"`
@@ -84,6 +85,7 @@ func getDefaultPreferences() UserPreferences {
 	// Default editor settings
 	prefs.EditorSettings.FontFamily = "Courier New"
 	prefs.EditorSettings.FontSize = 12
+	prefs.EditorSettings.TFontSize = 12
 	prefs.EditorSettings.TabWidth = 4
 	prefs.EditorSettings.ShowLineNumbers = true
 	prefs.EditorSettings.WrapText = false
@@ -150,9 +152,10 @@ func UpdateWindowSettings(width, height, x, y int) {
 	SavePreferences()
 }
 
-func SetEditorSettings(fontFamily string, fontSize, tabWidth int, showLineNumbers, wrapText bool) {
+func SetEditorSettings(fontFamily string, fontSize, tFontSize, tabWidth int, showLineNumbers, wrapText bool) {
 	preferences.EditorSettings.FontFamily = fontFamily
 	preferences.EditorSettings.FontSize = fontSize
+	preferences.EditorSettings.TFontSize = tFontSize
 	preferences.EditorSettings.TabWidth = tabWidth
 	preferences.EditorSettings.ShowLineNumbers = showLineNumbers
 	preferences.EditorSettings.WrapText = wrapText
@@ -208,6 +211,7 @@ func showPreferencesDialog() {
 var (
 	fontFamilyCombo         *widgets.QComboBox
 	fontSizeSpinner         *widgets.QSpinBox
+	tFontSizeSpinner        *widgets.QSpinBox
 	tabWidthSpinner         *widgets.QSpinBox
 	lineNumbersCheck        *widgets.QCheckBox
 	wrapTextCheck           *widgets.QCheckBox
@@ -239,6 +243,12 @@ func createEditorSettingsTab() *widgets.QWidget {
 	fontSizeSpinner.SetRange(8, 24)
 	fontSizeSpinner.SetValue(preferences.EditorSettings.FontSize)
 	layout.AddRow3("Font Size:", fontSizeSpinner)
+
+	// Font size
+	tFontSizeSpinner = widgets.NewQSpinBox(nil)
+	tFontSizeSpinner.SetRange(8, 24)
+	tFontSizeSpinner.SetValue(preferences.EditorSettings.TFontSize)
+	layout.AddRow3("Terminal Font Size:", tFontSizeSpinner)
 
 	// Tab width
 	tabWidthSpinner = widgets.NewQSpinBox(nil)
@@ -307,6 +317,7 @@ func savePreferencesFromUI() {
 	SetEditorSettings(
 		fontFamilyCombo.CurrentText(),
 		fontSizeSpinner.Value(),
+		tFontSizeSpinner.Value(),
 		tabWidthSpinner.Value(),
 		lineNumbersCheck.IsChecked(),
 		wrapTextCheck.IsChecked(),
@@ -327,6 +338,16 @@ func savePreferencesFromUI() {
 
 // Apply preferences to the editor
 func applyPreferencesToEditor() {
+
+	// Apply theme
+	applyTheme(preferences.ThemeSettings.ThemeName)
+
+	// Setup syntax highlighting (optional)
+	setupSyntaxHighlighting()
+	// Force update of line number area
+	editor.updateLineNumberAreaWidth()
+	editor.lineNumberArea.Update()
+
 	// Apply font settings
 	font := gui.NewQFont()
 	font.SetFamily(preferences.EditorSettings.FontFamily)
@@ -338,38 +359,33 @@ func applyPreferencesToEditor() {
 	metrics := gui.NewQFontMetrics(font)
 	editor.SetTabStopWidth(preferences.EditorSettings.TabWidth * metrics.HorizontalAdvance(" ", 0))
 
+	// Apply font settings
+	tFont := gui.NewQFont()
+	tFont.SetFamily(preferences.EditorSettings.FontFamily)
+	tFont.SetPointSize(preferences.EditorSettings.TFontSize)
+	tFont.SetFixedPitch(true)
+	terminalOutput.SetFont(tFont)
+
+	// Set tab width
+	tMetrics := gui.NewQFontMetrics(tFont)
+	terminalOutput.SetTabStopWidth(preferences.EditorSettings.TabWidth * tMetrics.HorizontalAdvance(" ", 0))
+
 	// Apply text wrapping
 	if preferences.EditorSettings.WrapText {
 		editor.SetLineWrapMode(widgets.QPlainTextEdit__WidgetWidth)
 	} else {
 		editor.SetLineWrapMode(widgets.QPlainTextEdit__NoWrap)
 	}
-
-	// Apply theme
-	applyTheme(preferences.ThemeSettings.ThemeName)
-
-	// Setup syntax highlighting (optional)
-	setupSyntaxHighlighting(editor.QPlainTextEdit)
-
-	// Force update of line number area
-	editor.updateLineNumberAreaWidth()
-	editor.lineNumberArea.Update()
 }
 
 // Initialize from preferences
 func initializeFromPreferences() {
-	// Initialize themes before applying preferences
-	initializeThemes()
-
 	// Initialize preferences system
 	err := InitPreferences()
 	if err != nil {
 		fmt.Printf("Failed to initialize preferences: %v\n", err)
 		return
 	}
-
-	// Apply settings to editor
-	applyPreferencesToEditor()
 
 	// Restore window geometry
 	mainWindow.Resize2(preferences.WindowSettings.Width, preferences.WindowSettings.Height)
@@ -392,6 +408,7 @@ func initializeFromPreferences() {
 	if preferences.AutoSaveEnabled && preferences.AutoSaveInterval > 0 {
 		setupAutoSaveTimer()
 	}
+	applyPreferencesToEditor()
 }
 
 var autoSaveTimer *core.QTimer

@@ -7,7 +7,6 @@ import (
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -140,7 +139,7 @@ func debugCode() {
 
 	debugFileSplit = strings.Split(debugFileContent, "\n")
 	realFileSplit = strings.Split(editor.ToPlainText(), "\n")
-	if err := ioutil.WriteFile(tempFile, []byte(modifiedContent.String()), 0644); err != nil {
+	if err := os.WriteFile(tempFile, []byte(modifiedContent.String()), 0644); err != nil {
 		terminalOutput.SetPlainText("Failed to create temporary file with breakpoints.")
 		return
 	}
@@ -149,7 +148,6 @@ func debugCode() {
 	terminalOutput.SetPlainText("Assembling code with breakpoints...\n")
 
 	asm := assembler.Assembler{}
-
 	err := asm.Assemble(tempFile, outputDir)
 	if err != nil {
 		errMsg := fmt.Sprintf("Assembly failed: %v\n", err)
@@ -193,7 +191,7 @@ func stopDebugging() {
 	}
 	debugInfo.isDebugging = false
 	debugInfo.cpu = nil
-	
+
 	// Restore normal UI
 	hideDebugWindows()
 	debugFileSplit = nil
@@ -425,13 +423,20 @@ func (e *CodeEditor) lineNumberAreaPaint(event *gui.QPaintEvent) {
 		if block.IsVisible() && bottom >= event.Rect().Top() {
 			number := strconv.Itoa(blockNumber + 1)
 
-			// Draw breakpoint indicator if needed (left side)
-			// Now using blockNumber instead of blockNumber+1
 			if debugInfo.breakpoints[blockNumber] {
 				pen := gui.NewQPen()
 				pen.SetColor(gui.NewQColor3(255, 0, 0, 255))
 				painter.SetPen(pen)
-				painter.DrawEllipse3(3, top+2, height-4, height-4)
+
+				brush := gui.NewQBrush()
+				brush.SetColor(gui.NewQColor3(255, 0, 0, 255))
+				brush.SetStyle(core.Qt__SolidPattern)
+				painter.SetBrush(brush)
+
+				size := (height - 4) / 2
+				x := 3 + size/2
+				y := top + 2 + size/2
+				painter.DrawEllipse3(x, y, size, size)
 			}
 
 			// Highlight current debug line

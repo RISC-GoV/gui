@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
 )
@@ -164,14 +163,13 @@ func updateThemePreview(previewWidget *widgets.QWidget, isDarkMode bool) {
 	}
 }
 
-// Set theme based on preferences
 func SetTheme(darkMode bool) {
 	preferences.ThemeSettings.DarkMode = darkMode
 	preferences.ThemeSettings.ThemeName = ThemeDark
 	if !darkMode {
 		preferences.ThemeSettings.ThemeName = ThemeLight
 	}
-	SavePreferences()
+	_ = SavePreferences()
 
 	// Apply the theme
 	applyTheme(preferences.ThemeSettings.ThemeName)
@@ -179,21 +177,11 @@ func SetTheme(darkMode bool) {
 
 // Replace the existing applyModernTheme function
 func applyModernTheme() {
-	// Initialize themes
-	initializeThemes()
-
 	// Set default theme (will be overridden by preferences)
 	currentTheme = ThemeLight
 
 	// Apply default theme (light)
 	applyTheme(currentTheme)
-}
-
-// Initialize the themes
-func initializeThemes() {
-	// Initialize theme system
-	fmt.Println("Initializing themes...")
-	// Additional initialization if needed
 }
 
 // Apply the selected theme to the application
@@ -355,13 +343,10 @@ func applyTheme(themeName string) {
 
 	// Apply stylesheet to application
 	app.SetStyleSheet(styleSheet)
-
-	// Notify that theme has been applied
-	fmt.Printf("Applied theme: %s\n", themeName)
 }
 
 // Setup syntax highlighting
-func setupSyntaxHighlighting(editor *widgets.QPlainTextEdit) {
+func setupSyntaxHighlighting() {
 	// Implement syntax highlighting based on current theme
 	var highlightRules []HighlightRule
 
@@ -391,11 +376,9 @@ func setupSyntaxHighlighting(editor *widgets.QPlainTextEdit) {
 		if rule.Bold {
 			rule.Format.SetFontWeight(75) // Bold
 		}
-		// Apply rule to editor (this is a placeholder - actual implementation depends on your editor's highlighter)
 	}
 }
 
-// Define HighlightRule structure for syntax highlighting
 type HighlightRule struct {
 	Pattern string
 	Format  *gui.QTextCharFormat

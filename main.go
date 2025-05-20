@@ -61,9 +61,9 @@ func NewCodeEditor() *CodeEditor {
 
 	// Set up editor appearance
 	font := gui.NewQFont()
-	font.SetFamily("Courier New")
+	font.SetFamily(preferences.EditorSettings.FontFamily)
 	font.SetFixedPitch(true)
-	font.SetPointSize(12)
+	font.SetPointSize(preferences.EditorSettings.FontSize)
 	editor.SetFont(font)
 
 	// Set tab width
@@ -241,8 +241,8 @@ func createMainContent() *widgets.QWidget {
 	// Terminal output
 	terminalOutput = widgets.NewQTextEdit(nil)
 	terminalOutput.SetReadOnly(true)
-	terminalOutput.SetFontFamily("Courier New")
-	terminalOutput.SetFontPointSize(11)
+	terminalOutput.SetFontFamily(preferences.EditorSettings.FontFamily)
+	terminalOutput.SetFontPointSize(float64(preferences.EditorSettings.TFontSize))
 
 	terminalPanel := widgets.NewQWidget(nil, 0)
 	terminalLayout := widgets.NewQVBoxLayout()
@@ -485,6 +485,7 @@ func createMenus() {
 func main() {
 	// Initialize Qt application
 	app = widgets.NewQApplication(len(os.Args), os.Args)
+
 	applyModernTheme()
 	// Initialize global variables
 	debugInfo = &DebugState{
@@ -515,8 +516,6 @@ func main() {
 
 	// Start with window maximized to ensure proper rendering of all components
 	mainWindow.ShowMaximized()
-
-	// Initialize from preferences (after UI is set up)
 	initializeFromPreferences()
 
 	// Connect close event to save window state
@@ -528,4 +527,5 @@ func main() {
 	// Show window and run application
 	mainWindow.Show()
 	app.Exec()
+
 }

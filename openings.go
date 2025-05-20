@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"github.com/therecipe/qt/widgets"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 )
 
 func openFile(path string) {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		widgets.QMessageBox_Critical(mainWindow, "Error",
 			fmt.Sprintf("Failed to open file: %v", err),

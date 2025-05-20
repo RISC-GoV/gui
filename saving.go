@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/widgets"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +51,7 @@ func createNewFile() {
 		}
 
 		path := filepath.Join(currentProjectPath, filename)
-		err := ioutil.WriteFile(path, []byte(""), 0644)
+		err := os.WriteFile(path, []byte(""), 0644)
 		if err != nil {
 			widgets.QMessageBox_Critical(mainWindow, "Error",
 				fmt.Sprintf("Failed to create file: %v", err),
