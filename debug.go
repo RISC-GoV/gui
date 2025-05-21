@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	rcore "github.com/RISC-GoV/core"
@@ -161,7 +160,7 @@ func debugCode() {
 	// Start debug session with fresh state
 	debugInfo.isDebugging = true
 	debugInfo.cpu = rcore.NewCPU(rcore.NewMemory())
-
+	rcore.Kernel.Init()
 	// Show debug UI
 	showDebugWindows()
 
@@ -460,70 +459,4 @@ func (e *CodeEditor) HighlightLine(lineNum int) {
 
 	// Redraw line number area to show highlight
 	e.lineNumberArea.Update()
-}
-
-func (e *CodeEditor) lineNumberAreaPaint(event *gui.QPaintEvent) {
-	painter := gui.NewQPainter2(e.lineNumberArea)
-	defer painter.End()
-
-	painter.SetFont(e.Font())
-
-	// Fill background - fill the entire visible area
-	r := event.Rect()
-	painter.FillRect5(r.X(), r.Y(), r.Width(), r.Height(), preferences.ThemeSettings.LineNumberAreaColor)
-
-	// Draw line numbers and breakpoint indicators
-	block := e.FirstVisibleBlock()
-	if !block.IsValid() {
-		return
-	}
-
-	blockGeom := e.BlockBoundingGeometry(block)
-	offset := e.ContentOffset()
-	translated := blockGeom.Translated(offset.X(), offset.Y())
-	top := int(translated.Y())
-	bottom := top + int(e.BlockBoundingRect(block).Height())
-
-	width := e.lineNumberArea.Width()
-	height := e.FontMetrics().Height()
-
-	blockNumber := block.BlockNumber()
-
-	for block.IsValid() && top <= event.Rect().Bottom() {
-		if block.IsVisible() && bottom >= event.Rect().Top() {
-			number := strconv.Itoa(blockNumber + 1)
-
-			if debugInfo.breakpoints[blockNumber] {
-				pen := gui.NewQPen()
-				pen.SetColor(gui.NewQColor3(255, 0, 0, 255))
-				painter.SetPen(pen)
-
-				brush := gui.NewQBrush()
-				brush.SetColor(gui.NewQColor3(255, 0, 0, 255))
-				brush.SetStyle(core.Qt__SolidPattern)
-				painter.SetBrush(brush)
-
-				size := (height - 4) / 2
-				x := 3 + size/2
-				y := top + 2 + size/2
-				painter.DrawEllipse3(x, y, size, size)
-			}
-
-			// Highlight current debug line
-			if debugInfo.isDebugging && blockNumber == currentHighline {
-				painter.FillRect5(0, top, width, height, gui.NewQColor3(255, 255, 0, 100))
-			}
-
-			// Draw line number (right-aligned, with more space from the right edge)
-			pen := gui.NewQPen()
-			pen.SetColor(gui.NewQColor3(120, 120, 120, 255))
-			painter.SetPen(pen)
-			painter.DrawText3(width-45, top+height-4, number) // Right-align with more space
-		}
-
-		block = block.Next()
-		top = bottom
-		bottom = top + int(e.BlockBoundingRect(block).Height())
-		blockNumber++
-	}
 }

@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/therecipe/qt/widgets"
 	"os"
 	"path/filepath"
+
+	"github.com/therecipe/qt/widgets"
 )
 
 func openFile(path string) {

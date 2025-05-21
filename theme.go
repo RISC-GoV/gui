@@ -683,40 +683,6 @@ func applyTheme(themeName string) {
 	app.ProcessEvents(core.QEventLoop__AllEvents)
 }
 
-// Setup syntax highlighting
-func setupSyntaxHighlighting() {
-	// Implement syntax highlighting based on current theme
-	var highlightRules []HighlightRule
-
-	if currentTheme == ThemeDark {
-		// Dark theme syntax highlighting rules
-		highlightRules = []HighlightRule{
-			{Pattern: `\b(def|if|else|while|for|return|import|from|as|class|try|except|finally|with|lambda|yield|break|continue|pass|global|nonlocal|in|is|not|and|or)\b`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(86, 156, 214, 255)}, // Keywords
-			{Pattern: `".*?"`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(206, 145, 120, 255)},                                                                                                                                            // String literals
-			{Pattern: `'.*?'`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(206, 145, 120, 255)},                                                                                                                                            // String literals
-			{Pattern: `\b\d+\b`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(181, 206, 168, 255)},                                                                                                                                          // Numbers
-			{Pattern: `#.*$`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(106, 153, 85, 255)},                                                                                                                                              // Comments
-		}
-	} else {
-		// Light theme syntax highlighting rules
-		highlightRules = []HighlightRule{
-			{Pattern: `\b(def|if|else|while|for|return|import|from|as|class|try|except|finally|with|lambda|yield|break|continue|pass|global|nonlocal|in|is|not|and|or)\b`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(0, 0, 255, 255)}, // Keywords
-			{Pattern: `".*?"`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(163, 21, 21, 255)},                                                                                                                                           // String literals
-			{Pattern: `'.*?'`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(163, 21, 21, 255)},                                                                                                                                           // String literals
-			{Pattern: `\b\d+\b`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(9, 136, 90, 255)},                                                                                                                                          // Numbers
-			{Pattern: `#.*$`, Format: gui.NewQTextCharFormat(), Color: gui.NewQColor3(0, 128, 0, 255)},                                                                                                                                              // Comments
-		}
-	}
-
-	// Apply highlighting rules to editor
-	for _, rule := range highlightRules {
-		rule.Format.SetForeground(gui.NewQBrush3(rule.Color, 1))
-		if rule.Bold {
-			rule.Format.SetFontWeight(75) // Bold
-		}
-	}
-}
-
 type HighlightRule struct {
 	Pattern string
 	Format  *gui.QTextCharFormat

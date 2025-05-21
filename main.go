@@ -61,6 +61,7 @@ func NewCodeEditor() *CodeEditor {
 		QPlainTextEdit: widgets.NewQPlainTextEdit(nil),
 	}
 
+	syntaxHighlighter = gui.NewQSyntaxHighlighter2(editor.Document())
 	// Set up editor appearance
 	font := gui.NewQFont()
 	font.SetFamily(preferences.EditorSettings.FontFamily)
@@ -77,7 +78,6 @@ func NewCodeEditor() *CodeEditor {
 
 	// Connect signals
 	editor.ConnectUpdateRequest(editor.updateLineNumberArea)
-	editor.lineNumberArea.ConnectPaintEvent(editor.lineNumberAreaPaint)
 	editor.lineNumberArea.ConnectMousePressEvent(editor.lineNumberAreaMousePress)
 
 	// Update line number area width
@@ -245,7 +245,7 @@ func createMainContent() *widgets.QWidget {
 
 	// Terminal output
 	terminalOutput = widgets.NewQTextEdit(nil)
-	terminalOutput.SetReadOnly(true)
+	terminalOutput.SetReadOnly(false)
 	terminalOutput.SetFontFamily(preferences.EditorSettings.FontFamily)
 	terminalOutput.SetFontPointSize(float64(preferences.EditorSettings.TFontSize))
 
@@ -545,6 +545,7 @@ func main() {
 	// Start with window maximized to ensure proper rendering of all components
 	mainWindow.ShowMaximized()
 	initializeFromPreferences()
+	editor.lineNumberArea.ConnectPaintEvent(editor.lineNumberAreaPaint)
 
 	// Connect close event to save window state
 	mainWindow.ConnectCloseEvent(func(event *gui.QCloseEvent) {
@@ -552,6 +553,10 @@ func main() {
 		event.Accept()
 	})
 
+	editor.ConnectTextChanged(func() {
+		// Reapply syntax highlighting when text changes
+		setupSyntaxHighlighting()
+	})
 	// Show window and run application
 	mainWindow.Show()
 	app.Exec()
