@@ -20,7 +20,16 @@ func stepDebugCode() {
 	}
 	go func() {
 		// Execute the current instruction
-		state := debugInfo.cpu.ExecuteSingle()
+		state, err := debugInfo.cpu.ExecuteSingle()
+		if err != nil {
+			terminalOutput.Append(fmt.Sprintf("Error executing instruction: %v\n", err))
+			return
+		}
+		if debugInfo.cpu == nil {
+			terminalOutput.Append("CPU is nil, stopping debugging.\n")
+			stopDebugging()
+			return
+		}
 		updateRegistersDisplay()
 
 		// Calculate the line to highlight in the editor
@@ -59,7 +68,11 @@ func continueDebugCode() {
 
 	go func() {
 		for debugInfo.isDebugging {
-			state := debugInfo.cpu.ExecuteSingle()
+			state, err := debugInfo.cpu.ExecuteSingle()
+			if err != nil {
+				terminalOutput.Append(fmt.Sprintf("Error executing instruction: %v\n", err))
+				return
+			}
 
 			switch state {
 			case rcore.PROGRAM_EXIT:

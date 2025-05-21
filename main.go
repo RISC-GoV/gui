@@ -329,8 +329,7 @@ func runCode() {
 			setTerminal(fmt.Sprintf("Execution failed: %v\n", err))
 			return
 		}
-
-		setTerminal("Program executed successfully.\n")
+		setTerminal("Program execution finished.\n")
 	}()
 }
 
