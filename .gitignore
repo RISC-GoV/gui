@@ -22,3 +22,5 @@ go.work
 /.riscgov_ide
 /.idea
 go.sum
+/qtbox
+/.vscode

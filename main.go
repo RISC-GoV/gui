@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	rcore "github.com/RISC-GoV/core"
 	assembler "github.com/RISC-GoV/risc-assembler"
@@ -26,7 +28,8 @@ var (
 	// Main UI components
 	mainWindow      *widgets.QMainWindow
 	editor          *CodeEditor
-	terminalOutput  *widgets.QTextEdit
+	terminalOutput  *widgets.QTextEdit // For stdout (read-only)
+	terminalInput   *widgets.QTextEdit // For stdin (input)
 	fileTree        *widgets.QTreeView
 	fileSystemModel *widgets.QFileSystemModel
 
@@ -168,6 +171,10 @@ func createToolbars() {
 	mainToolbar.AddSeparator()
 
 	// Run operations
+	assembleAction := mainToolbar.AddAction2(gui.NewQIcon(), "Assemble")
+	assembleAction.ConnectTriggered(func(bool) { AssembleCode() })
+
+	// Run operations
 	runAction := mainToolbar.AddAction2(gui.NewQIcon(), "Run")
 	runAction.ConnectTriggered(func(bool) { runCode() })
 
@@ -243,16 +250,29 @@ func createMainContent() *widgets.QWidget {
 
 	rightSplitter.AddWidget(editorPanel)
 
-	// Terminal output
+	// Terminal panel with output and input terminals
+	terminalPanel := widgets.NewQWidget(nil, 0)
+	terminalLayout := widgets.NewQVBoxLayout()
+
+	// Output terminal (stdout) - read-only
 	terminalOutput = widgets.NewQTextEdit(nil)
-	terminalOutput.SetReadOnly(false)
+	terminalOutput.SetReadOnly(true)
 	terminalOutput.SetFontFamily(preferences.EditorSettings.FontFamily)
 	terminalOutput.SetFontPointSize(float64(preferences.EditorSettings.TFontSize))
 
-	terminalPanel := widgets.NewQWidget(nil, 0)
-	terminalLayout := widgets.NewQVBoxLayout()
-	terminalLayout.AddWidget(widgets.NewQLabel2("Terminal", nil, 0), 0, 0)
+	// Input terminal (stdin)
+	terminalInput = widgets.NewQTextEdit(nil)
+	terminalInput.SetReadOnly(false)
+	terminalInput.SetFontFamily(preferences.EditorSettings.FontFamily)
+	terminalInput.SetFontPointSize(float64(preferences.EditorSettings.TFontSize))
+	terminalInput.SetMaximumHeight(60) // Limit height of input terminal
+
+	// Add terminals to layout
+	terminalLayout.AddWidget(widgets.NewQLabel2("Output (stdout)", nil, 0), 0, 0)
 	terminalLayout.AddWidget(terminalOutput, 0, 0)
+	terminalLayout.AddWidget(widgets.NewQLabel2("Input (stdin)", nil, 0), 0, 0)
+	terminalLayout.AddWidget(terminalInput, 0, 0)
+
 	terminalPanel.SetLayout(terminalLayout)
 
 	rightSplitter.AddWidget(terminalPanel)
@@ -299,17 +319,19 @@ func runCode() {
 	}
 
 	setTerminal("Assembly successful.\nRunning code...\n")
+	go func() {
+		// Execute code
+		outputFile := filepath.Join(outputDir, "output.exe")
+		cpu := rcore.NewCPU(rcore.NewMemory())
+		rcore.Kernel.Init()
+		err = cpu.ExecuteFile(outputFile)
+		if err != nil {
+			setTerminal(fmt.Sprintf("Execution failed: %v\n", err))
+			return
+		}
 
-	// Execute code
-	outputFile := filepath.Join(outputDir, "output.exe")
-	cpu := rcore.NewCPU(rcore.NewMemory())
-	err = cpu.ExecuteFile(outputFile)
-	if err != nil {
-		setTerminal(fmt.Sprintf("Execution failed: %v\n", err))
-		return
-	}
-
-	setTerminal("Program executed successfully.\n")
+		setTerminal("Program executed successfully.\n")
+	}()
 }
 
 func setTerminal(newMSG string) {
@@ -492,12 +514,16 @@ func createMenus() {
 	// Run menu
 	runMenu := menuBar.AddMenu2("&Run")
 
+	assembleAction := runMenu.AddAction("&Assemble")
+	assembleAction.SetShortcut(gui.NewQKeySequence2("F5", gui.QKeySequence__NativeText))
+	assembleAction.ConnectTriggered(func(bool) { AssembleCode() })
+
 	runAction := runMenu.AddAction("&Run")
-	runAction.SetShortcut(gui.NewQKeySequence2("F5", gui.QKeySequence__NativeText))
+	runAction.SetShortcut(gui.NewQKeySequence2("F6", gui.QKeySequence__NativeText))
 	runAction.ConnectTriggered(func(bool) { runCode() })
 
 	debugAction := runMenu.AddAction("&Debug")
-	debugAction.SetShortcut(gui.NewQKeySequence2("F6", gui.QKeySequence__NativeText))
+	debugAction.SetShortcut(gui.NewQKeySequence2("F7", gui.QKeySequence__NativeText))
 	debugAction.ConnectTriggered(func(bool) { debugCode() })
 
 	// Help menu
@@ -546,7 +572,7 @@ func main() {
 	mainWindow.ShowMaximized()
 	initializeFromPreferences()
 	editor.lineNumberArea.ConnectPaintEvent(editor.lineNumberAreaPaint)
-
+	initTerminalIO()
 	// Connect close event to save window state
 	mainWindow.ConnectCloseEvent(func(event *gui.QCloseEvent) {
 		saveWindowState()
@@ -561,4 +587,91 @@ func main() {
 	mainWindow.Show()
 	app.Exec()
 
+}
+
+func initTerminalIO() {
+	stdinR, stdinW, _ := os.Pipe()
+	stdoutR, stdoutW, _ := os.Pipe()
+
+	os.Stdin = stdinR
+	os.Stdout = stdoutW
+	os.Stderr = stdoutW
+
+	// Hold original stdout to write back to terminal for debugging (optional)
+	originalStdout := os.NewFile(uintptr(syscall.Stdout), "/dev/stdout")
+
+	var currentInput string
+	updateCh := make(chan string, 100)
+
+	// UI: Capture key events
+	terminalInput.ConnectKeyPressEvent(func(event *gui.QKeyEvent) {
+		key := event.Key()
+
+		// Handle Enter key - send input to stdin
+		if key == int(core.Qt__Key_Return) || key == int(core.Qt__Key_Enter) {
+			if currentInput != "" {
+				stdinW.Write([]byte(currentInput + "\n"))
+				updateCh <- currentInput + "\n"
+				currentInput = ""
+				terminalInput.Clear()
+			}
+			event.Accept()
+			return
+		}
+
+		// Handle Backspace
+		if key == int(core.Qt__Key_Backspace) && len(currentInput) > 0 {
+			currentInput = currentInput[:len(currentInput)-1]
+			text := terminalInput.ToPlainText()
+			if len(text) > 0 {
+				terminalInput.SetPlainText(text[:len(text)-1])
+			}
+			event.Accept()
+			return
+		}
+
+		// Handle regular character input
+		if event.Text() != "" {
+			char := event.Text()
+			currentInput += char
+			terminalInput.InsertPlainText(char)
+			event.Accept()
+		}
+	})
+
+	// Timer-based UI update from stdout pipe
+	timer := core.NewQTimer(nil)
+	timer.ConnectTimeout(func() {
+		for {
+			select {
+			case out := <-updateCh:
+				terminalOutput.Append(out)
+				cursor := terminalOutput.TextCursor()
+				cursor.MovePosition(gui.QTextCursor__End, gui.QTextCursor__MoveAnchor, 1)
+				terminalOutput.SetTextCursor(cursor)
+				terminalOutput.EnsureCursorVisible()
+
+			default:
+				return
+			}
+		}
+	})
+	timer.Start(5)
+
+	// Goroutine to read from redirected stdout/stderr
+	go func() {
+		reader := bufio.NewReader(stdoutR)
+		buffer := make([]byte, 1024)
+		for {
+			n, err := reader.Read(buffer)
+			if err != nil {
+				break
+			}
+			output := string(buffer[:n])
+			// Mirror to original stdout
+			fmt.Fprintln(originalStdout, output)
+			// Send to GUI
+			updateCh <- output
+		}
+	}()
 }

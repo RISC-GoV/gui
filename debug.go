@@ -18,35 +18,38 @@ func stepDebugCode() {
 	if !debugInfo.isDebugging || debugInfo.cpu == nil {
 		return
 	}
+	go func() {
+		// Execute the current instruction
+		state := debugInfo.cpu.ExecuteSingle()
+		updateRegistersDisplay()
 
-	// Execute the current instruction
-	state := debugInfo.cpu.ExecuteSingle()
-	updateRegistersDisplay()
+		// Calculate the line to highlight in the editor
+		// Here we add 1 to show the next line that will execute, not the one that just ran
+		lineNum := 1 // Default to line 1
+		if debugInfo.cpu.PC != 0 {
+			// Calculate line number based on PC value
+			// This assumes each instruction is 4 bytes and maps to source lines
+			lineNum = int(debugInfo.cpu.PC / 4)
 
-	// Calculate the line to highlight in the editor
-	// Here we add 1 to show the next line that will execute, not the one that just ran
-	lineNum := 1 // Default to line 1
-	if debugInfo.cpu.PC != 0 {
-		// Calculate line number based on PC value
-		// This assumes each instruction is 4 bytes and maps to source lines
-		lineNum = int(debugInfo.cpu.PC / 4)
-	}
+			// Highlight the next execution line
+			editor.HighlightLine(lineNum)
 
-	// Highlight the next execution line
-	editor.HighlightLine(lineNum)
+			switch state {
+			case rcore.PROGRAM_EXIT:
+				terminalOutput.Append("Program exited normally\n")
+				stopDebugging()
+			case rcore.PROGRAM_EXIT_FAILURE:
+				terminalOutput.Append("Program exited with failure\n")
+				stopDebugging()
+			case rcore.E_BREAK:
+				terminalOutput.Append(fmt.Sprintf("Breakpoint hit at 0x%0x/%d\n", debugInfo.cpu.PC, debugInfo.cpu.PC))
+			default:
+				terminalOutput.Append(fmt.Sprintf("PC (4byte/instructions) = %d", debugInfo.cpu.PC))
+				debugInfo.cpu.PrintInstruction(debugInfo.cpu.PC)
+			}
 
-	switch state {
-	case rcore.PROGRAM_EXIT:
-		terminalOutput.SetText(terminalOutput.ToPlainText() + "Program exited normally\n")
-		stopDebugging()
-	case rcore.PROGRAM_EXIT_FAILURE:
-		terminalOutput.SetText(terminalOutput.ToPlainText() + "Program exited with failure\n")
-		stopDebugging()
-	case rcore.E_BREAK:
-		terminalOutput.SetText(terminalOutput.ToPlainText() + fmt.Sprintf("Breakpoint hit at 0x%0x\n", debugInfo.cpu.PC))
-	default:
-		terminalOutput.SetText(terminalOutput.ToPlainText() + fmt.Sprintf("PC (4byte/instructions) = %d\n", debugInfo.cpu.PC))
-	}
+		}
+	}()
 }
 
 func continueDebugCode() {
@@ -60,15 +63,15 @@ func continueDebugCode() {
 
 			switch state {
 			case rcore.PROGRAM_EXIT:
-				terminalOutput.SetText(terminalOutput.ToPlainText() + "Program exited normally\n")
+				terminalOutput.Append("Program exited normally\n")
 				stopDebugging()
 				return
 			case rcore.PROGRAM_EXIT_FAILURE:
-				terminalOutput.SetText(terminalOutput.ToPlainText() + "Program exited with failure\n")
+				terminalOutput.Append("Program exited with failure\n")
 				stopDebugging()
 				return
 			case rcore.E_BREAK:
-				terminalOutput.SetText(terminalOutput.ToPlainText() + fmt.Sprintf("Breakpoint hit at 0x%0x\n", debugInfo.cpu.PC))
+				terminalOutput.Append(fmt.Sprintf("Breakpoint hit at 0x%0x\n", debugInfo.cpu.PC))
 
 				// Calculate the line to highlight in the editor - show the next line to execute
 				lineNum := 1 // Default to line 1
@@ -85,6 +88,29 @@ func continueDebugCode() {
 		}
 		updateRegistersDisplay()
 	}()
+}
+
+func AssembleCode() {
+	if currentFilePath == "" {
+		widgets.QMessageBox_Information(mainWindow, "No File", "No file is currently open to assemble", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
+	}
+
+	saveCurrentFile()
+
+	// Assemble code
+	terminalOutput.SetPlainText("Assembling code...\n")
+
+	asm := assembler.Assembler{}
+	dir := filepath.Dir(currentFilePath)
+	err := asm.Assemble(currentFilePath, dir)
+	if err != nil {
+		errMsg := fmt.Sprintf("Assembly failed: %v\n", err)
+		terminalOutput.SetPlainText(errMsg)
+		return
+	}
+
+	setTerminal("Assembly successful.")
 }
 
 func debugCode() {
@@ -270,7 +296,7 @@ func stopDebugging() {
 		editor.lineNumberArea.Update()
 	}
 
-	terminalOutput.SetText(terminalOutput.ToPlainText() + "Debug session stopped.\n")
+	terminalOutput.Append("Debug session stopped.\n")
 }
 
 func showDebugWindows() {

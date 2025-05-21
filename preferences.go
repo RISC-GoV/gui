@@ -366,6 +366,7 @@ func applyPreferencesToEditor() {
 	tFont.SetPointSize(preferences.EditorSettings.TFontSize)
 	tFont.SetFixedPitch(true)
 	terminalOutput.SetFont(tFont)
+	terminalInput.SetFont(tFont)
 
 	// Set tab width
 	tMetrics := gui.NewQFontMetrics(tFont)
