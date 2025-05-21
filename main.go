@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	rcore "github.com/RISC-GoV/core"
 	assembler "github.com/RISC-GoV/risc-assembler"
@@ -329,7 +330,9 @@ func runCode() {
 			setTerminal(fmt.Sprintf("Execution failed: %v\n", err))
 			return
 		}
-		setTerminal("Program execution finished.\n")
+		//wait 100ms
+		time.Sleep(100 * time.Millisecond)
+		setTerminal("\nProgram execution finished.\n")
 	}()
 }
 
@@ -609,7 +612,7 @@ func initTerminalIO() {
 		// Handle Enter key - send input to stdin
 		if key == int(core.Qt__Key_Return) || key == int(core.Qt__Key_Enter) {
 			if currentInput != "" {
-				stdinW.Write([]byte(currentInput + "\n"))
+				stdinW.Write([]byte(currentInput))
 				updateCh <- currentInput + "\n"
 				currentInput = ""
 				terminalInput.Clear()
