@@ -28,6 +28,12 @@ func openFile(path string) {
 
 	// Add to recent files list
 	AddRecentFile(path)
+
+	// Trigger global syntax highlighting immediately after opening the file
+	// This will re-apply highlighting to the entire document.
+	if syntaxHighlighter != nil {
+		syntaxHighlighter.Rehighlight()
+	}
 }
 
 func openProjectDialog() {

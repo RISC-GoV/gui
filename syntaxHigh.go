@@ -8,17 +8,51 @@ import (
 	"github.com/therecipe/qt/gui"
 )
 
+var (
+	reRiscvRegisters          *regexp.Regexp
+	reRiscvInstructions       *regexp.Regexp
+	reRiscvDirectives         *regexp.Regexp
+	reRiscvPseudoInstructions *regexp.Regexp
+	reComment                 *regexp.Regexp
+	reString                  *regexp.Regexp
+	reChar                    *regexp.Regexp
+	reNumber                  *regexp.Regexp
+	reLabel                   *regexp.Regexp
+
+	registerFormat    *gui.QTextCharFormat
+	instructionFormat *gui.QTextCharFormat
+	directiveFormat   *gui.QTextCharFormat
+	pseudoFormat      *gui.QTextCharFormat
+	commentFormat     *gui.QTextCharFormat
+	stringFormat      *gui.QTextCharFormat
+	numberFormat      *gui.QTextCharFormat
+	labelFormat       *gui.QTextCharFormat
+)
+
 // SyntaxHighlighter for the editor
 var syntaxHighlighter *gui.QSyntaxHighlighter
 
+func init() {
+	// Compile all regexps once when the package is initialized
+	reRiscvRegisters = regexp.MustCompile(`\b(zero|ra|sp|gp|tp|t[0-6]|s[0-11]|a[0-7]|x\d+)\b`)
+	reRiscvInstructions = regexp.MustCompile(`\b(add|addi|sub|lui|auipc|jal|jalr|beq|bne|blt|bge|bltu|bgeu|lb|lh|lw|lbu|lhu|sb|sh|sw|and|andi|or|ori|xor|xori|sll|slli|srl|srli|sra|srai|slt|slti|sltu|sltiu|ecall|ebreak|fence|fence\.i|csrrw|csrrs|csrrc|csrrwi|csrrsi|csrrci|mul|mulh|mulhsu|mulhu|div|divu|rem|remu)\b`)
+	reRiscvDirectives = regexp.MustCompile(`\.(text|data|section|global|globl|byte|half|word|dword|zero|align|file|ident|size|type|string|ascii|asciiz)`)
+	reRiscvPseudoInstructions = regexp.MustCompile(`\b(nop|li|la|mv|not|neg|seqz|snez|sltz|sgtz|beqz|bnez|blez|bgez|bltz|bgtz|j|jr|ret|call|tail)\b`)
+	reComment = regexp.MustCompile(`#.*$`)
+	reString = regexp.MustCompile(`".*?"`)
+	reChar = regexp.MustCompile(`'.*?'`)
+	reNumber = regexp.MustCompile(`\b(0x[0-9a-fA-F]+|0b[01]+|\d+)\b`)
+	reLabel = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*):\b`)
+}
+
+func applyFormatToPattern(text string, compiledRegex *regexp.Regexp, format *gui.QTextCharFormat, highlighter *gui.QSyntaxHighlighter) {
+	matches := compiledRegex.FindAllStringIndex(text, -1)
+	for _, match := range matches {
+		highlighter.SetFormat(match[0], match[1]-match[0], format)
+	}
+}
+
 func setupSyntaxHighlighting() {
-
-	// Define RISC-V specific syntax highlighting patterns
-	riscvRegisters := `\b(zero|ra|sp|gp|tp|t[0-6]|s[0-11]|a[0-7]|x\d+)\b`
-	riscvInstructions := `\b(add|addi|sub|lui|auipc|jal|jalr|beq|bne|blt|bge|bltu|bgeu|lb|lh|lw|lbu|lhu|sb|sh|sw|and|andi|or|ori|xor|xori|sll|slli|srl|srli|sra|srai|slt|slti|sltu|sltiu|ecall|ebreak|fence|fence\.i|csrrw|csrrs|csrrc|csrrwi|csrrsi|csrrci|mul|mulh|mulhsu|mulhu|div|divu|rem|remu)\b`
-	riscvDirectives := `\.(text|data|section|global|globl|byte|half|word|dword|zero|align|file|ident|size|type|string|ascii|asciiz)`
-	riscvPseudoInstructions := `\b(nop|li|la|mv|not|neg|seqz|snez|sltz|sgtz|beqz|bnez|blez|bgez|bltz|bgtz|j|jr|ret|call|tail)\b`
-
 	// Determine highlighting colors based on current theme
 	var registerColor, instructionColor, directiveColor, pseudoColor, commentColor, stringColor, numberColor, labelColor *gui.QColor
 
@@ -44,88 +78,64 @@ func setupSyntaxHighlighting() {
 		labelColor = gui.NewQColor3(121, 94, 38, 255)      // Brown
 	}
 
+	// Initialize formats once, update only if colors change
+	registerFormat = gui.NewQTextCharFormat()
+	registerFormat.SetForeground(gui.NewQBrush3(registerColor, core.Qt__SolidPattern))
+	registerFormat.SetFontWeight(75) // Bold
+
+	instructionFormat = gui.NewQTextCharFormat()
+	instructionFormat.SetForeground(gui.NewQBrush3(instructionColor, core.Qt__SolidPattern))
+
+	directiveFormat = gui.NewQTextCharFormat()
+	directiveFormat.SetForeground(gui.NewQBrush3(directiveColor, core.Qt__SolidPattern))
+
+	pseudoFormat = gui.NewQTextCharFormat()
+	pseudoFormat.SetForeground(gui.NewQBrush3(pseudoColor, core.Qt__SolidPattern))
+
+	commentFormat = gui.NewQTextCharFormat()
+	commentFormat.SetForeground(gui.NewQBrush3(commentColor, core.Qt__SolidPattern))
+
+	stringFormat = gui.NewQTextCharFormat()
+	stringFormat.SetForeground(gui.NewQBrush3(stringColor, core.Qt__SolidPattern))
+
+	numberFormat = gui.NewQTextCharFormat()
+	numberFormat.SetForeground(gui.NewQBrush3(numberColor, core.Qt__SolidPattern))
+
+	labelFormat = gui.NewQTextCharFormat()
+	labelFormat.SetForeground(gui.NewQBrush3(labelColor, core.Qt__SolidPattern))
+
 	// Connect the highlightBlock function
 	syntaxHighlighter.ConnectHighlightBlock(func(text string) {
-		// Registers (bold)
-		registerFormat := gui.NewQTextCharFormat()
-		registerFormat.SetForeground(gui.NewQBrush3(registerColor, core.Qt__SolidPattern))
-		registerFormat.SetFontWeight(75) // Bold
-		applyFormatToPattern(text, riscvRegisters, registerFormat, syntaxHighlighter)
-
-		// Instructions
-		instructionFormat := gui.NewQTextCharFormat()
-		instructionFormat.SetForeground(gui.NewQBrush3(instructionColor, core.Qt__SolidPattern))
-		applyFormatToPattern(text, riscvInstructions, instructionFormat, syntaxHighlighter)
-
-		// Directives
-		directiveFormat := gui.NewQTextCharFormat()
-		directiveFormat.SetForeground(gui.NewQBrush3(directiveColor, core.Qt__SolidPattern))
-		applyFormatToPattern(text, riscvDirectives, directiveFormat, syntaxHighlighter)
-
-		// Pseudo instructions
-		pseudoFormat := gui.NewQTextCharFormat()
-		pseudoFormat.SetForeground(gui.NewQBrush3(pseudoColor, core.Qt__SolidPattern))
-		applyFormatToPattern(text, riscvPseudoInstructions, pseudoFormat, syntaxHighlighter)
-
-		// Comments
-		commentFormat := gui.NewQTextCharFormat()
-		commentFormat.SetForeground(gui.NewQBrush3(commentColor, core.Qt__SolidPattern))
-		commentRegex := regexp.MustCompile(`#.*$`)
-		matches := commentRegex.FindAllStringIndex(text, -1)
-		for _, match := range matches {
-			syntaxHighlighter.SetFormat(match[0], match[1]-match[0], commentFormat)
-		}
-
-		// String literals
-		stringFormat := gui.NewQTextCharFormat()
-		stringFormat.SetForeground(gui.NewQBrush3(stringColor, core.Qt__SolidPattern))
-		stringRegex := regexp.MustCompile(`".*?"`)
-		matches = stringRegex.FindAllStringIndex(text, -1)
-		for _, match := range matches {
-			syntaxHighlighter.SetFormat(match[0], match[1]-match[0], stringFormat)
-		}
-
-		// Character literals
-		charRegex := regexp.MustCompile(`'.*?'`)
-		matches = charRegex.FindAllStringIndex(text, -1)
-		for _, match := range matches {
-			syntaxHighlighter.SetFormat(match[0], match[1]-match[0], stringFormat)
-		}
-
-		// Numbers (hex, binary, decimal)
-		numberFormat := gui.NewQTextCharFormat()
-		numberFormat.SetForeground(gui.NewQBrush3(numberColor, core.Qt__SolidPattern))
-		numberRegex := regexp.MustCompile(`\b(0x[0-9a-fA-F]+|0b[01]+|\d+)\b`)
-		matches = numberRegex.FindAllStringIndex(text, -1)
-		for _, match := range matches {
-			syntaxHighlighter.SetFormat(match[0], match[1]-match[0], numberFormat)
-		}
-
-		// Labels
-		labelFormat := gui.NewQTextCharFormat()
-		labelFormat.SetForeground(gui.NewQBrush3(labelColor, core.Qt__SolidPattern))
-		labelRegex := regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*):\b`)
-		matches = labelRegex.FindAllStringIndex(text, -1)
-		for _, match := range matches {
-			syntaxHighlighter.SetFormat(match[0], match[1]-match[0], labelFormat)
-		}
+		// Apply formats using the pre-compiled regexps and pre-initialized formats
+		applyFormatToPattern(text, reRiscvRegisters, registerFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reRiscvInstructions, instructionFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reRiscvDirectives, directiveFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reRiscvPseudoInstructions, pseudoFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reComment, commentFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reString, stringFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reChar, stringFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reNumber, numberFormat, syntaxHighlighter)
+		applyFormatToPattern(text, reLabel, labelFormat, syntaxHighlighter)
 	})
-}
 
-// Helper function to apply formatting to all matches of a pattern
-func applyFormatToPattern(text, pattern string, format *gui.QTextCharFormat, highlighter *gui.QSyntaxHighlighter) {
-	regex := regexp.MustCompile(pattern)
-	matches := regex.FindAllStringIndex(text, -1)
-	for _, match := range matches {
-		highlighter.SetFormat(match[0], match[1]-match[0], format)
-	}
+	syntaxHighlighter.Rehighlight()
 }
-
 func (e *CodeEditor) lineNumberAreaPaint(event *gui.QPaintEvent) {
 	painter := gui.NewQPainter2(e.lineNumberArea)
 	defer painter.End()
 
 	painter.SetFont(e.Font())
+
+	// Pre-create common pens and brushes
+	breakpointPen := gui.NewQPen()
+	breakpointPen.SetColor(gui.NewQColor3(255, 0, 0, 255))
+
+	breakpointBrush := gui.NewQBrush()
+	breakpointBrush.SetColor(gui.NewQColor3(255, 0, 0, 255))
+	breakpointBrush.SetStyle(core.Qt__SolidPattern)
+
+	lineNumberPen := gui.NewQPen()
+	lineNumberPen.SetColor(gui.NewQColor3(120, 120, 120, 255))
 
 	// Fill background - fill the entire visible area
 	r := event.Rect()
@@ -153,14 +163,8 @@ func (e *CodeEditor) lineNumberAreaPaint(event *gui.QPaintEvent) {
 			number := strconv.Itoa(blockNumber + 1)
 
 			if debugInfo.breakpoints[blockNumber] {
-				pen := gui.NewQPen()
-				pen.SetColor(gui.NewQColor3(255, 0, 0, 255))
-				painter.SetPen(pen)
-
-				brush := gui.NewQBrush()
-				brush.SetColor(gui.NewQColor3(255, 0, 0, 255))
-				brush.SetStyle(core.Qt__SolidPattern)
-				painter.SetBrush(brush)
+				painter.SetPen(breakpointPen)
+				painter.SetBrush(breakpointBrush)
 
 				size := (height - 4) / 2
 				x := 3 + size/2
@@ -174,9 +178,7 @@ func (e *CodeEditor) lineNumberAreaPaint(event *gui.QPaintEvent) {
 			}
 
 			// Draw line number (right-aligned, with more space from the right edge)
-			pen := gui.NewQPen()
-			pen.SetColor(gui.NewQColor3(120, 120, 120, 255))
-			painter.SetPen(pen)
+			painter.SetPen(lineNumberPen)                     // Use the pre-created pen
 			painter.DrawText3(width-45, top+height-4, number) // Right-align with more space
 		}
 

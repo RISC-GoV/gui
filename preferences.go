@@ -343,8 +343,6 @@ func applyPreferencesToEditor() {
 	// Apply theme
 	applyTheme(preferences.ThemeSettings.ThemeName)
 
-	// Setup syntax highlighting (optional)
-	setupSyntaxHighlighting()
 	// Force update of line number area
 	editor.updateLineNumberAreaWidth()
 	editor.lineNumberArea.Update()

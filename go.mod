@@ -3,7 +3,7 @@ module testassembly
 go 1.24.1
 
 require (
-	github.com/RISC-GoV/core v0.0.0-20250521215221-0e0c8c191a7c
+	github.com/RISC-GoV/core v0.0.0-20250521232029-22a8980cd76e
 	github.com/RISC-GoV/risc-assembler v0.0.0-20250520133439-4cc8e59932c8
 	github.com/therecipe/qt v0.0.0-20200904063919-c0c124a5770d
 )

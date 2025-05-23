@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	rcore "github.com/RISC-GoV/core"
 	assembler "github.com/RISC-GoV/risc-assembler"
@@ -32,12 +33,9 @@ func stepDebugCode() {
 		}
 		updateRegistersDisplay()
 
-		// Calculate the line to highlight in the editor
-		// Here we add 1 to show the next line that will execute, not the one that just ran
 		lineNum := 1 // Default to line 1
 		if debugInfo.cpu.PC != 0 {
 			// Calculate line number based on PC value
-			// This assumes each instruction is 4 bytes and maps to source lines
 			lineNum = int(debugInfo.cpu.PC / 4)
 
 			// Highlight the next execution line
@@ -498,4 +496,49 @@ func (e *CodeEditor) HighlightLine(lineNum int) {
 
 	// Redraw line number area to show highlight
 	e.lineNumberArea.Update()
+}
+
+func runCode() {
+	if currentFilePath == "" {
+		widgets.QMessageBox_Information(mainWindow, "No File", "No file is currently open to run", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
+	}
+
+	saveCurrentFile()
+
+	// Create hidden directory for assembled output
+	outputDir := filepath.Join(filepath.Dir(currentFilePath), ".riscgov_ide/assembling")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		log.Printf("Error creating output directory: %v", err)
+		widgets.QMessageBox_Critical(mainWindow, "Error", fmt.Sprintf("Failed to create output directory: %v", err), widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
+	}
+
+	// Assemble code
+	terminalOutput.SetPlainText("Assembling code...\n")
+
+	asm := assembler.Assembler{}
+
+	err := asm.Assemble(currentFilePath, outputDir)
+	if err != nil {
+		errMsg := fmt.Sprintf("Assembly failed: %v\n", err)
+		terminalOutput.SetPlainText(errMsg)
+		return
+	}
+
+	setTerminal("Assembly successful.\nRunning code...\n")
+	go func() {
+		// Execute code
+		outputFile := filepath.Join(outputDir, "output.exe")
+		cpu := rcore.NewCPU(rcore.NewMemory())
+		rcore.Kernel.Init()
+		err = cpu.ExecuteFile(outputFile)
+		if err != nil {
+			setTerminal(fmt.Sprintf("Execution failed: %v\n", err))
+			return
+		}
+		//wait 100ms
+		time.Sleep(100 * time.Millisecond)
+		setTerminal("\nProgram execution finished.\n")
+	}()
 }
