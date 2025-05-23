@@ -33,16 +33,30 @@ var (
 var syntaxHighlighter *gui.QSyntaxHighlighter
 
 func init() {
-	// Compile all regexps once when the package is initialized
-	reRiscvRegisters = regexp.MustCompile(`\b(zero|ra|sp|gp|tp|t[0-6]|s[0-11]|a[0-7]|x\d+)\b`)
-	reRiscvInstructions = regexp.MustCompile(`\b(add|addi|sub|lui|auipc|jal|jalr|beq|bne|blt|bge|bltu|bgeu|lb|lh|lw|lbu|lhu|sb|sh|sw|and|andi|or|ori|xor|xori|sll|slli|srl|srli|sra|srai|slt|slti|sltu|sltiu|ecall|ebreak|fence|fence\.i|csrrw|csrrs|csrrc|csrrwi|csrrsi|csrrci|mul|mulh|mulhsu|mulhu|div|divu|rem|remu)\b`)
-	reRiscvDirectives = regexp.MustCompile(`\.(text|data|section|global|globl|byte|half|word|dword|zero|align|file|ident|size|type|string|ascii|asciiz)`)
-	reRiscvPseudoInstructions = regexp.MustCompile(`\b(nop|li|la|mv|not|neg|seqz|snez|sltz|sgtz|beqz|bnez|blez|bgez|bltz|bgtz|j|jr|ret|call|tail)\b`)
-	reComment = regexp.MustCompile(`#.*$`)
-	reString = regexp.MustCompile(`".*?"`)
-	reChar = regexp.MustCompile(`'.*?'`)
-	reNumber = regexp.MustCompile(`\b(0x[0-9a-fA-F]+|0b[01]+|\d+)\b`)
-	reLabel = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*):\b`)
+	// More comprehensive register pattern including all valid RISC-V registers
+	reRiscvRegisters = regexp.MustCompile(`\b(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|t[0-6]|s[0-9]|s1[0-1]|a[0-7])\b`)
+
+	// Extended instruction set including all RV32I, RV64I, M, A, and F extensions
+	reRiscvInstructions = regexp.MustCompile(`\b(?:add|addi|sub|lui|auipc|jal|jalr|beq|bne|blt|bge|bltu|bgeu|lb|lh|lw|ld|lbu|lhu|lwu|sb|sh|sw|sd|and|andi|or|ori|xor|xori|sll|slli|srl|srli|sra|srai|slt|slti|sltu|sltiu|mul|mulh|mulhsu|mulhu|div|divu|rem|remu|fence|fence\.i|ecall|ebreak|csrr[wsrc]|csrr[ws]i|csrrc|amoadd\.[wd]|amoswap\.[wd]|amoand\.[wd]|amoor\.[wd]|amoxor\.[wd]|amomax[u]?\.[wd]|amomin[u]?\.[wd]|flw|fsw|fadd\.s|fsub\.s|fmul\.s|fdiv\.s|fsqrt\.s|fmin\.s|fmax\.s|fcvt\.[ws]\.s|fcvt\.s\.[ws]|fmv\.[wx]\.s|fmv\.s\.[wx]|feq\.s|flt\.s|fle\.s|fclass\.s)\b`)
+
+	// Extended directives including common assembler directives
+	reRiscvDirectives = regexp.MustCompile(`\.(?:text|data|section|global|globl|local|weak|byte|2byte|half|4byte|word|8byte|dword|quad|zero|align|balign|p2align|file|ident|size|type|string|ascii|asciiz|set|equ|option|attribute|include|macro|endm|rept|endr|extern|rodata|bss)`)
+
+	// Extended pseudo-instructions
+	reRiscvPseudoInstructions = regexp.MustCompile(`\b(?:nop|li|la|mv|not|neg|seqz|snez|sltz|sgtz|beqz|bnez|blez|bgez|bltz|bgtz|bgt|ble|bgtu|bleu|j|jr|ret|call|tail|sext\.w|zext\.w)\b`)
+
+	// Improved comment pattern to handle both single-line and multi-line comments
+	reComment = regexp.MustCompile(`#.*$|/\*(?s:.*?)\*/`)
+
+	// Improved string and character patterns
+	reString = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
+	reChar = regexp.MustCompile(`'(?:[^'\\]|\\.)*'`)
+
+	// Extended number pattern to handle all common number formats
+	reNumber = regexp.MustCompile(`\b(?:0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|\d+)\b`)
+
+	// Improved label pattern
+	reLabel = regexp.MustCompile(`^[ \t]*[a-zA-Z_.][a-zA-Z0-9_$.]*:`)
 }
 
 func applyFormatToPattern(text string, compiledRegex *regexp.Regexp, format *gui.QTextCharFormat, highlighter *gui.QSyntaxHighlighter) {
@@ -53,31 +67,37 @@ func applyFormatToPattern(text string, compiledRegex *regexp.Regexp, format *gui
 }
 
 func setupSyntaxHighlighting() {
-	// Determine highlighting colors based on current theme
-	var registerColor, instructionColor, directiveColor, pseudoColor, commentColor, stringColor, numberColor, labelColor *gui.QColor
+	var (
+		registerColor    *gui.QColor
+		instructionColor *gui.QColor
+		directiveColor   *gui.QColor
+		pseudoColor      *gui.QColor
+		commentColor     *gui.QColor
+		stringColor      *gui.QColor
+		numberColor      *gui.QColor
+		labelColor       *gui.QColor
+	)
 
 	if currentTheme == ThemeDark {
-		// Dark theme colors
-		registerColor = gui.NewQColor3(209, 105, 105, 255)   // Red
-		instructionColor = gui.NewQColor3(86, 156, 214, 255) // Blue
-		directiveColor = gui.NewQColor3(197, 134, 192, 255)  // Purple
-		pseudoColor = gui.NewQColor3(78, 201, 176, 255)      // Teal
-		commentColor = gui.NewQColor3(106, 153, 85, 255)     // Green
-		stringColor = gui.NewQColor3(206, 145, 120, 255)     // Brown
-		numberColor = gui.NewQColor3(181, 206, 168, 255)     // Light green
-		labelColor = gui.NewQColor3(220, 220, 170, 255)      // Light yellow
+		registerColor = gui.NewQColor3(255, 128, 128, 255)    // Brighter red
+		instructionColor = gui.NewQColor3(130, 177, 255, 255) // Brighter blue
+		directiveColor = gui.NewQColor3(216, 160, 223, 255)   // Brighter purple
+		pseudoColor = gui.NewQColor3(100, 223, 223, 255)      // Brighter teal
+		commentColor = gui.NewQColor3(128, 178, 128, 255)     // Brighter green
+		stringColor = gui.NewQColor3(230, 192, 160, 255)      // Brighter brown
+		numberColor = gui.NewQColor3(200, 230, 180, 255)      // Brighter light green
+		labelColor = gui.NewQColor3(240, 240, 190, 255)       // Brighter yellow
 	} else {
-		// Light theme colors
-		registerColor = gui.NewQColor3(170, 43, 43, 255)   // Dark red
-		instructionColor = gui.NewQColor3(0, 0, 255, 255)  // Blue
-		directiveColor = gui.NewQColor3(163, 21, 163, 255) // Purple
-		pseudoColor = gui.NewQColor3(0, 128, 128, 255)     // Teal
-		commentColor = gui.NewQColor3(0, 128, 0, 255)      // Green
-		stringColor = gui.NewQColor3(163, 21, 21, 255)     // Dark red
-		numberColor = gui.NewQColor3(9, 136, 90, 255)      // Green
-		labelColor = gui.NewQColor3(121, 94, 38, 255)      // Brown
+		// More vibrant light theme colors
+		registerColor = gui.NewQColor3(204, 0, 0, 255)      // Vivid red
+		instructionColor = gui.NewQColor3(0, 102, 204, 255) // Strong blue
+		directiveColor = gui.NewQColor3(153, 0, 204, 255)   // Rich purple
+		pseudoColor = gui.NewQColor3(0, 153, 153, 255)      // Deep teal
+		commentColor = gui.NewQColor3(0, 153, 0, 255)       // Clear green
+		stringColor = gui.NewQColor3(204, 102, 0, 255)      // Deep orange
+		numberColor = gui.NewQColor3(0, 153, 102, 255)      // Forest green
+		labelColor = gui.NewQColor3(153, 102, 0, 255)       // Rich brown
 	}
-
 	// Initialize formats once, update only if colors change
 	registerFormat = gui.NewQTextCharFormat()
 	registerFormat.SetForeground(gui.NewQBrush3(registerColor, core.Qt__SolidPattern))

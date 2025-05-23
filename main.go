@@ -96,8 +96,50 @@ func (e *CodeEditor) updateLineNumberArea(rect *core.QRect, dy int) {
 	}
 }
 
+func (e *CodeEditor) calculateLineNumberAreaWidth() int {
+	// Get the total number of blocks (lines) in the document
+	blockCount := e.Document().BlockCount()
+
+	// Handle case with 0 lines (though usually at least 1)
+	if blockCount == 0 {
+		blockCount = 1
+	}
+
+	// Determine the number of digits in the largest line number
+	// For example, if blockCount is 9, max digits is 1. If 10, max digits is 2. If 99, 2. If 100, 3.
+	digits := 1
+	maxLineNumber := blockCount
+	for maxLineNumber >= 10 {
+		maxLineNumber /= 10
+		digits++
+	}
+
+	// Create a string of '9's with the determined number of digits
+	// This represents the widest possible number for that digit count.
+	widestNumberStr := ""
+	for i := 0; i < digits; i++ {
+		widestNumberStr += "9"
+	}
+
+	// Get the font metrics for the font used in the line number area
+	fontMetrics := gui.NewQFontMetrics(e.Font())
+
+	// Calculate the width of the widest number string
+	textWidth := fontMetrics.HorizontalAdvance(widestNumberStr, -1) // -1 or 0 for default flags
+
+	// Add padding for aesthetic purposes
+	leftPadding := 5  // space from the left edge of the area
+	rightPadding := 5 // space from the right edge of the area where the numbers stop
+
+	// The total width needed is the text width plus padding
+	requiredWidth := textWidth*len(widestNumberStr) + leftPadding + rightPadding
+
+	return requiredWidth
+}
+
 func (e *CodeEditor) updateLineNumberAreaWidth() {
-	lineNumberWidth := 70
+	// Calculate the width dynamically
+	lineNumberWidth := e.calculateLineNumberAreaWidth()
 	e.SetViewportMargins(lineNumberWidth, 0, 0, 0)
 	e.lineNumberArea.SetGeometry2(0, 0, lineNumberWidth, e.Rect().Height())
 }
@@ -164,18 +206,18 @@ func main() {
 	createToolbars()
 	mainContent := createMainContent()
 	mainLayout.AddWidget(mainContent, 0, 0)
+
+	mainWindow.SetCentralWidget(centralWidget)
+
+	mainWindow.ShowMaximized()
+
 	go func() {
 		defer wg.Done()
 		initializeFromPreferences()
 	}()
 
-	mainWindow.SetCentralWidget(centralWidget)
-
 	wg.Wait()
-
-	mainWindow.ShowMaximized()
 	editor.lineNumberArea.ConnectPaintEvent(editor.lineNumberAreaPaint)
-
 	go initTerminalIO()
 	initDebug()
 
