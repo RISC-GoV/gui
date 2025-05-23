@@ -15,8 +15,6 @@ const (
 // Global theme variable
 var currentTheme string
 
-// Let's update the preference-related code to work with our new theme system
-
 func createThemeSettingsTab() *widgets.QWidget {
 	tab := widgets.NewQWidget(nil, 0)
 	layout := widgets.NewQVBoxLayout()

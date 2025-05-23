@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	rcore "github.com/RISC-GoV/core"
@@ -15,11 +16,25 @@ import (
 	"github.com/therecipe/qt/widgets"
 )
 
+// lock for instruction execution
+var lockExecution *sync.Mutex
+
+func initDebug() {
+	// Initialize the lock
+	lockExecution = &sync.Mutex{}
+}
+
 func stepDebugCode() {
 	if !debugInfo.isDebugging || debugInfo.cpu == nil {
 		return
 	}
 	go func() {
+		//check if the mutex is already locked
+		if !lockExecution.TryLock() {
+			// If the mutex is already locked, return without executing
+			return
+		}
+		defer lockExecution.Unlock()
 		// Execute the current instruction
 		state, err := debugInfo.cpu.ExecuteSingle()
 		if err != nil {
@@ -65,6 +80,13 @@ func continueDebugCode() {
 	}
 
 	go func() {
+
+		//check if the mutex is already locked
+		if !lockExecution.TryLock() {
+			// If the mutex is already locked, return without executing
+			return
+		}
+		defer lockExecution.Unlock()
 		for debugInfo.isDebugging {
 			state, err := debugInfo.cpu.ExecuteSingle()
 			if err != nil {
@@ -223,6 +245,13 @@ func debugCode() {
 }
 
 func hotReloadCode() {
+
+	//check if the mutex is already locked
+	if !lockExecution.TryLock() {
+		// If the mutex is already locked, return without executing
+		return
+	}
+	defer lockExecution.Unlock()
 	saveCurrentFile()
 
 	// Create hidden directory for assembled output
@@ -403,6 +432,7 @@ func showDebugWindows() {
 
 		// Add splitter to layout
 		editorLayout.AddWidget(debugContainer)
+		applyPreferencesToEditor()
 	} else {
 		// If debug container already exists, just make it visible
 		debugContainer.Widget(1).SetVisible(true)

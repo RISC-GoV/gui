@@ -177,6 +177,7 @@ func main() {
 	editor.lineNumberArea.ConnectPaintEvent(editor.lineNumberAreaPaint)
 
 	go initTerminalIO()
+	initDebug()
 
 	mainWindow.ConnectCloseEvent(func(event *gui.QCloseEvent) {
 		go saveWindowState()
