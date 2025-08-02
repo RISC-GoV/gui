@@ -455,6 +455,12 @@ func createMenus() {
 
 	helpMenu := menuBar.AddMenu2("&Help")
 
+	bugAction := helpMenu.AddAction("&Report bug")
+	bugAction.ConnectTriggered(func(bool) {
+		url := core.NewQUrl3("https://github.com/RISC-GoV/gui/issues/new", core.QUrl__TolerantMode)
+		gui.QDesktopServices_OpenUrl(url)
+	})
+
 	aboutAction := helpMenu.AddAction("&About")
 	aboutAction.ConnectTriggered(func(bool) {
 		widgets.QMessageBox_About(mainWindow, "About RISC-GoV IDE",
