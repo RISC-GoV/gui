@@ -84,7 +84,7 @@ func getDefaultPreferences() UserPreferences {
 	}
 
 	// Default editor settings
-	prefs.EditorSettings.FontFamily = "Courier New"
+	prefs.EditorSettings.FontFamily = "Monospace"
 	prefs.EditorSettings.FontSize = 12
 	prefs.EditorSettings.TFontSize = 12
 	prefs.EditorSettings.TabWidth = 4
