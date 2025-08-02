@@ -1,4 +1,4 @@
-module testassembly
+module risc-gov-ide
 
 go 1.24.1
 
